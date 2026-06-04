@@ -45,10 +45,30 @@ export async function POST(req: Request) {
   }
 
   if (Object.keys(updates).length > 0) {
+    const staffMatch = [`user_id.eq.${user.id}`];
+    if (user.email) staffMatch.push(`email.eq.${user.email}`);
+
+    const { data: staffRow, error: staffLookupError } = await supabaseAdmin
+      .from("staff")
+      .select("id")
+      .or(staffMatch.join(","))
+      .maybeSingle();
+
+    if (staffLookupError) {
+      return NextResponse.json({ error: staffLookupError.message }, { status: 500 });
+    }
+
+    if (!staffRow?.id) {
+      return NextResponse.json(
+        { error: "Staff profile is not linked to a business yet." },
+        { status: 404 }
+      );
+    }
+
     const { error } = await supabaseAdmin
       .from("staff")
       .update(updates)
-      .or(`user_id.eq.${user.id},email.eq.${user.email}`);
+      .eq("id", staffRow.id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

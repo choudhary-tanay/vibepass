@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS reports (
   entity_type    text NOT NULL CHECK (entity_type IN ('class', 'business', 'staff')),
   entity_id      uuid NOT NULL,
   reason         text NOT NULL,
+  severity       text NOT NULL DEFAULT 'low'
+    CHECK (severity IN ('low', 'medium', 'high', 'urgent')),
   details        text,
   reporter_name  text,
   reporter_email text,
@@ -54,6 +56,13 @@ CREATE TABLE IF NOT EXISTS reports (
   updated_at     timestamptz NOT NULL DEFAULT now(),
   resolved_at    timestamptz
 );
+
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS severity text DEFAULT 'low';
+UPDATE reports SET severity = 'low' WHERE severity IS NULL;
+ALTER TABLE reports ALTER COLUMN severity SET NOT NULL;
+ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_severity_check;
+ALTER TABLE reports ADD CONSTRAINT reports_severity_check
+  CHECK (severity IN ('low', 'medium', 'high', 'urgent'));
 
 CREATE INDEX IF NOT EXISTS reports_status_created_at_idx
   ON reports (status, created_at DESC);

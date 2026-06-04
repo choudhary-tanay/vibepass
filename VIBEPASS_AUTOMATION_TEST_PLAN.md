@@ -84,7 +84,7 @@ These results came from the staging QA pass against `https://vibepass-staging.ve
 | Dummy paid booking if available | Pass where available | No real money collected |
 | Multi-attendee dummy paid booking | Pass where available | Retest capacity and booking rows after booking changes |
 | Customer booking history | Pass | Customer booking history loaded |
-| Customer can report event/business/staff | Fail | `BUG-001` report insert failure |
+| Customer can report event/business/staff | **Pass 2026-06-04** | `BUG-001` fixed. Report submission successful after SQL applied |
 
 ### Owner / Business
 
@@ -99,22 +99,22 @@ These results came from the staging QA pass against `https://vibepass-staging.ve
 | Owner classes/events list | Pass/partial | Retest after approval-related changes |
 | Owner bookings page | Pass/partial | New owner-created class booking linkage blocked by approval |
 | Owner analytics page | Pass | Loads where available |
-| Owner staff page | Fail | `BUG-003`, staff count stayed `0` after invite acceptance |
-| Owner can invite/add staff | Fail/partial | Invite creation works, acceptance/linkage fails |
+| Owner staff page | **Pass 2026-06-04** | `BUG-003` fixed. Staff shows in Active tab after invite acceptance |
+| Owner can invite/add staff | **Pass 2026-06-04** | `BUG-002` fixed. Invite creates linked staff row |
 
 ### Staff
 
 | Test | Result | Notes |
 | --- | --- | --- |
 | Staff signup route behavior | Pass/partial | Invite-only behavior respected |
-| Staff invite flow from owner portal | Fail | `BUG-002`, accepted invite did not link staff to owner studio |
-| Staff login | Partial | Account can exist, but linkage is unreliable |
-| Staff dashboard loads | Partial | Depends on staff linkage |
-| Staff profile page loads | Partial | Depends on staff linkage |
-| Staff profile image/bio/social update | Fail | `BUG-004`, edits did not visibly persist |
-| Staff can view assigned classes/events | Blocked | Staff linkage bug |
-| Instructor can propose class/event | Blocked | Staff linkage bug and approval flow |
-| Staff-created proposal public visibility | Blocked | Staff linkage bug and approval flow |
+| Staff invite flow from owner portal | **Pass 2026-06-04** | `BUG-002` fixed. Staff accepted invite → linked to owner studio with correct `business_id` and `user_id` |
+| Staff login | Pass | Staff can log in after invite accepted and linked |
+| Staff dashboard loads | Pass | Staff portal loads with linked business data |
+| Staff profile page loads | Pass | Profile page shows linked business name and staff details |
+| Staff profile image/bio/social update | **Pass 2026-06-04** | `BUG-004` fixed. Edits saved and persist after refresh |
+| Staff can view assigned classes/events | Needs QA | Depends on staff assignment; linkage fix unblocks this |
+| Instructor can propose class/event | Blocked | Approval flow still needs QA |
+| Staff-created proposal public visibility | Blocked | Approval flow still needs QA |
 
 ### Cross-Portal Without Admin
 
@@ -124,16 +124,18 @@ These results came from the staging QA pass against `https://vibepass-staging.ve
 | Owner-created published event public only if approved | Blocked/expected | Requires admin approval |
 | Customer booking updates seats/bookings | Pass where booking allowed | Retest after booking changes |
 | Owner bookings show customer booking | Blocked/partial | Requires approved public owner class |
-| Staff profile changes appear owner/public | Blocked/fail | Staff linkage/profile persistence bugs |
+| Staff profile changes appear owner/public | **Pass 2026-06-04** | `BUG-004` fixed. Staff profile edits visible in profile view and owner staff list |
 
-## Current Bug Retest Matrix
+## Bug Retest Results — Step 9 Bug-Fix Pass
 
-| Bug | Fix is complete only when |
-| --- | --- |
-| `BUG-001` report SQL/app failure | Public class/business/staff report submits successfully, row appears in `reports`, admin reports page shows it, admin can update status |
-| `BUG-002` staff invite linkage | Owner sends invite, staff accepts through UI, staff row links to correct business and user |
-| `BUG-003` owner staff count/list | Owner staff page shows the accepted staff member after invite acceptance |
-| `BUG-004` staff profile persistence | Staff edits image/bio/social fields, refreshes, and values remain visible in staff portal and public/owner views where expected |
+All four Step 9 bugs were retested on 2026-06-04 after SQL migrations were applied in staging. All passed.
+
+| Bug | Result | Test performed |
+| --- | --- | --- |
+| `BUG-001` report SQL/app failure | **Pass 2026-06-04** | Public report submission via report button on a class/business page. Row saved to `reports` table in staging Supabase. |
+| `BUG-002` staff invite linkage | **Pass 2026-06-04** | Owner sent new invite. Staff accepted via invite link. `staff` table row created with correct `business_id` and `user_id`. Staff portal shows business name. |
+| `BUG-003` owner staff count/list | **Pass 2026-06-04** | Owner refreshed `/owner/staff` page after staff accepted invite. Accepted staff member appeared in Active tab. |
+| `BUG-004` staff profile persistence | **Pass 2026-06-04** | Staff edited bio, specialties, and social fields. Saved. Navigated away and back. Values persisted on both edit page and profile view page. |
 
 ## Manual Regression Checklist
 
@@ -260,6 +262,8 @@ Suggested future test files:
 | Date | Environment | Scope | Result |
 | --- | --- | --- | --- |
 | 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | Public/customer, owner, staff; no admin portal | Completed with passes, `BUG-001` to `BUG-004`, and admin/approval blockers |
+| 2026-06-04 | Local | `npm run build` | Passed after code fixes for `BUG-001` to `BUG-004`. SQL migrations still pending manual Supabase run. |
+| 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | BUG-001 to BUG-004 retest after SQL applied | All four bugs retested and passed. Report submission works. Staff invite links staff to business. Owner staff list shows staff. Staff profile edits persist. |
 
 ## Mandatory Update Rule
 

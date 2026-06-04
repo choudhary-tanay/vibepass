@@ -77,14 +77,14 @@ Use these files together:
 
 ## Current Known Bugs
 
-Do not silently fix these during unrelated work. Ask before changing app logic.
+All Step 9 QA bugs were fixed in the 2026-06-04 bug-fix pass. No open bugs from that pass remain.
 
-| ID | Severity | Status | Symptom | Likely area |
-| --- | --- | --- | --- | --- |
-| `BUG-001` | High | Open | Public report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.` | `app/api/reports/route.ts`, `components/ReportButton.tsx`, `supabase/phase11-admin-safety-storage.sql`, `supabase/report-status-update.sql` |
-| `BUG-002` | High | Open | Staff invite acceptance does not link staff to the owner studio | `app/api/staff/invite/register/route.ts`, `app/api/owner/staff/invite/route.ts`, `staff` / `staff_invites` tables |
-| `BUG-003` | High | Open | Owner staff page still shows `0` staff after invite acceptance | `app/owner/staff/page.tsx`, `staff` table linkage, `staff_invites` flow |
-| `BUG-004` | Medium | Open | Staff profile edits do not visibly persist | `app/api/staff/profile/update/route.ts`, staff profile pages, `staff` table linkage |
+| ID | Severity | Status | Fix summary |
+| --- | --- | --- | --- |
+| `BUG-001` | High | **Fixed** | `reports` table, RLS, and severity constraint created by running `phase11-admin-safety-storage.sql` + `report-status-update.sql` in staging Supabase. API error logging improved. Retested 2026-06-04: report submission successful. |
+| `BUG-002` | High | **Fixed** | `ensureStaffRecordForInvite` added to register and accept routes — INSERT-or-UPDATE replaces old UPDATE-only. `staff-portal-rls.sql` run in staging Supabase to add `user_id` column to `staff` table. Retested 2026-06-04: staff accept invite → staff row linked to correct business. |
+| `BUG-003` | High | **Fixed** | Cascaded from BUG-002. Once staff rows exist with correct `business_id`, owner staff page shows them. Retested 2026-06-04: owner staff list shows accepted staff. |
+| `BUG-004` | Medium | **Fixed** | Cascaded from BUG-002. Profile update route now does lookup-then-update-by-ID. Retested 2026-06-04: staff profile edits persist after refresh. |
 
 ## Current Blockers
 
@@ -92,8 +92,6 @@ Do not silently fix these during unrelated work. Ask before changing app logic.
 | --- | --- |
 | Admin approval required | Owner-created published classes should not appear publicly until the business/class approval rules allow them |
 | Admin portal skipped | Admin login, owner approval, reports, users/bookings/events, health, and audit logs still need manual/admin QA |
-| Staff linkage bug | Staff assigned classes, staff proposals, owner staff visibility, and public staff profile linkage cannot be trusted until `BUG-002`/`BUG-003` are fixed |
-| Report SQL/app failure | Report flows cannot be marked launch-ready until `BUG-001` is fixed and retested |
 | Temporary staging QA users | Delete these users or change passwords after QA |
 
 ## Portal Map
@@ -304,10 +302,16 @@ The live schema is cumulative. Do not assume `supabase/schema.sql` alone represe
 | `supabase/report-status-update.sql` | Report status enum/check update |
 | `supabase/clear-database.sql` | Destructive utility. Never run in production. |
 
-Current migration risk:
+SQL applied in staging (Step 9 bug-fix pass — 2026-06-04):
 
-- `BUG-001` strongly suggests the staging database may be missing the reports table/RLS/status setup from `phase11-admin-safety-storage.sql` and/or `report-status-update.sql`.
-- `BUG-002`/`BUG-003` may require both code and schema/RLS verification around `staff`, `staff_invites`, and staff portal RLS.
+The following SQL files were run manually in the staging Supabase SQL Editor in this order:
+
+| # | File | What it fixed |
+| --- | --- | --- |
+| 1 | `supabase/phase11-admin-safety-storage.sql` | Created `reports` table, report INSERT RLS, storage buckets, severity column |
+| 2 | `supabase/report-status-update.sql` | Extended `reports.status` to include `reviewing`, `dismissed`, `action_taken`; severity constraint |
+| 3 | `supabase/staff-portal-rls.sql` | Added `user_id` column to `staff` table; staff-self-read and staff-self-update RLS policies |
+| 4 | `supabase/staff-portal-rls-fix.sql` | Dropped two cross-table RLS policies that caused infinite recursion |
 
 ## Environment Variable Map
 

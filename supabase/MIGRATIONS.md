@@ -44,17 +44,18 @@ Each file builds on the one before it — running them out of order will cause e
 
 ---
 
-## Current Staging QA Note
+## Staging SQL Applied — 2026-06-04 (Step 9 bug-fix pass)
 
-Step 9 staging QA found `BUG-001`: public report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
+The following files were applied in the staging Supabase SQL Editor to resolve Step 9 QA bugs:
 
-Before marking reporting launch-ready, verify the staging database has the reports table, report RLS policies, and report status constraint from:
+| File | What it fixed |
+|---|---|
+| `phase11-admin-safety-storage.sql` | Created `reports` table, report INSERT RLS, storage bucket policies, severity column — fixed `BUG-001` |
+| `report-status-update.sql` | Extended `reports.status` constraint, severity constraint — fixed `BUG-001` |
+| `staff-portal-rls.sql` | Added `user_id` column to `staff` table, staff-self-read and staff-self-update RLS policies — fixed `BUG-002`, `BUG-003`, `BUG-004` |
+| `staff-portal-rls-fix.sql` | Dropped two cross-table RLS policies on `businesses` and `classes` that caused infinite recursion — required after `staff-portal-rls.sql` |
 
-- `phase11-admin-safety-storage.sql`
-- `phase12-improvements.sql`
-- `report-status-update.sql`
-
-Then retest public report creation and admin report moderation.
+After applying these migrations, QA staff re-accepted a fresh invite from the owner. All four bugs (`BUG-001` to `BUG-004`) retested and passed on 2026-06-04.
 
 ---
 

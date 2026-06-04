@@ -6,6 +6,63 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+type StaffInvite = {
+  business_id: string;
+  email: string;
+  role: string | null;
+};
+
+async function ensureStaffRecordForInvite(
+  invite: StaffInvite,
+  userId: string,
+  displayName: string
+) {
+  const email = invite.email.toLowerCase().trim();
+  const safeName = displayName.trim() || email.split("@")[0];
+  const safeRole = invite.role || "instructor";
+
+  const { data: existingStaff, error: lookupError } = await supabaseAdmin
+    .from("staff")
+    .select("id")
+    .eq("business_id", invite.business_id)
+    .eq("email", email)
+    .maybeSingle();
+
+  if (lookupError) {
+    return { staffId: null, error: lookupError.message };
+  }
+
+  const staffFields = {
+    user_id: userId,
+    status: "active",
+    name: safeName,
+    email,
+    role: safeRole,
+  };
+
+  if (existingStaff?.id) {
+    const { data: updatedStaff, error } = await supabaseAdmin
+      .from("staff")
+      .update(staffFields)
+      .eq("id", existingStaff.id)
+      .select("id")
+      .single();
+
+    return { staffId: updatedStaff?.id ?? null, error: error?.message ?? null };
+  }
+
+  const { data: insertedStaff, error } = await supabaseAdmin
+    .from("staff")
+    .insert({
+      business_id: invite.business_id,
+      ...staffFields,
+    })
+    .select("id")
+    .single();
+
+  return { staffId: insertedStaff?.id ?? null, error: error?.message ?? null };
+}
+
 export async function POST(req: Request) {
   const { token, name, password } = await req.json().catch(() => ({}));
 
@@ -95,18 +152,24 @@ export async function POST(req: Request) {
     });
   }
 
-  // 4. Mark invite accepted
-  await supabaseAdmin
+  // 4. Create or link the business staff row before consuming the invite.
+  const linkedStaff = await ensureStaffRecordForInvite(invite, userId, displayName);
+  if (linkedStaff.error || !linkedStaff.staffId) {
+    return NextResponse.json(
+      { error: linkedStaff.error || "Failed to link staff invite." },
+      { status: 500 }
+    );
+  }
+
+  // 5. Mark invite accepted after the staff record is safely linked.
+  const { error: acceptError } = await supabaseAdmin
     .from("staff_invites")
     .update({ accepted_at: new Date().toISOString() })
     .eq("id", invite.id);
 
-  // 5. Link auth user to staff row
-  await supabaseAdmin
-    .from("staff")
-    .update({ user_id: userId, status: "active" })
-    .eq("business_id", invite.business_id)
-    .eq("email", email);
+  if (acceptError) {
+    return NextResponse.json({ error: "Failed to accept invite." }, { status: 500 });
+  }
 
-  return NextResponse.json({ ok: true, email });
+  return NextResponse.json({ ok: true, email, staffId: linkedStaff.staffId });
 }

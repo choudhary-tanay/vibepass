@@ -26,12 +26,12 @@ Current PM-facing feature list:
 
 - `VIBEPASS_FEATURE_INVENTORY.md` is the current feature inventory for Product Management. It tracks portal ownership, feature status, connected routes/files/data, dependencies, QA status, bugs, blockers, and future work. Update it whenever a feature is added, changed, removed, blocked, or retested.
 
-Current open Step 9 QA bugs:
+Step 9 QA bugs — all fixed 2026-06-04:
 
-- `BUG-001`: report submission fails and says the Phase 11 continuation SQL must be run.
-- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
-- `BUG-003`: owner staff page still shows `0` staff after invite acceptance.
-- `BUG-004`: staff profile edits do not visibly persist.
+- `BUG-001`: fixed. `reports` table and RLS created in staging Supabase. Report submission retested and passed.
+- `BUG-002`: fixed. Staff invite accept/register routes now INSERT-or-UPDATE staff row. `user_id` column added via `staff-portal-rls.sql`. Retested and passed.
+- `BUG-003`: fixed. Cascaded from BUG-002. Owner staff list shows accepted staff. Retested and passed.
+- `BUG-004`: fixed. Cascaded from BUG-002. Staff profile edits persist after refresh. Retested and passed.
 
 Do not start bug fixes, commits, pushes, deployment, public launch work, or Razorpay changes without explicit user approval.
 

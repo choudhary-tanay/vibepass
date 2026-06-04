@@ -24,12 +24,12 @@ Current staging state:
 - Razorpay: deferred; do not enable without explicit approval
 - Admin QA is still pending
 
-Current open Step 9 QA bugs:
+Step 9 QA bugs — all fixed 2026-06-04:
 
-- `BUG-001`: report submission fails with a Phase 11 continuation SQL error.
-- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
-- `BUG-003`: owner staff page shows `0` staff after invite acceptance.
-- `BUG-004`: staff profile edits do not visibly persist.
+- `BUG-001`: report submission fixed. `reports` table created in staging via SQL. API error logging improved. Retested: pass.
+- `BUG-002`: staff invite linkage fixed. `ensureStaffRecordForInvite` INSERT-or-UPDATE added to register and accept routes. `staff-portal-rls.sql` applied in staging to add `user_id` column. Retested: pass.
+- `BUG-003`: owner staff page fixed. Cascaded from BUG-002. Staff re-accepted invite after SQL applied. Retested: pass.
+- `BUG-004`: staff profile persistence fixed. Cascaded from BUG-002. Profile update route uses lookup-then-update-by-ID. Retested: pass.
 
 ## Quick Summary
 

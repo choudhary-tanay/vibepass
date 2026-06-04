@@ -374,7 +374,7 @@ npm run dev
 * [x] Seat count updates correctly. — Pass: paid class changed to 7 of 10 seats open; free class changed to 14 of 15 seats open
 * [x] Customer booking history works. — Pass: customer bookings page showed both test bookings
 * [ ] Customer can cancel eligible booking if supported.
-* [ ] Customer can report event/business/staff. — Fail: report form opens, but submission says `Report could not be saved. Run the Phase 11 continuation SQL first.`
+* [x] Customer can report event/business/staff. — **Pass 2026-06-04**: report submission successful after `phase11-admin-safety-storage.sql` and `report-status-update.sql` applied in staging (`BUG-001` fixed)
 
 ### Owner
 
@@ -386,7 +386,7 @@ npm run dev
 * [!] Owner can publish event/class. — Blocked: requires admin approval for owner/business before public publishing can be fully tested
 * [x] Owner can see bookings. — Pass: owner bookings page loaded; owner-created booking linkage blocked until owner business approval/public class
 * [x] Owner can see analytics. — Pass: owner analytics page loaded
-* [ ] Owner can manage staff. — Fail: owner generated invite, but accepted staff did not appear linked on owner staff page
+* [x] Owner can manage staff. — **Pass 2026-06-04**: `BUG-002` and `BUG-003` fixed. Invite links staff to business. Owner staff page shows accepted staff.
 * [ ] Instructor proposal flow works if enabled.
 * [!] Owner can approve instructor proposal to draft. — Blocked: staff invite linkage failed, so staff proposal approval could not be verified
 * [!] Owner can publish approved draft. — Blocked: requires admin approval and successful staff proposal linkage
@@ -394,10 +394,10 @@ npm run dev
 ### Staff
 
 * [x] Staff invite page works. — Pass: public staff signup route is invite-only and explains staff need an owner invite link
-* [ ] Staff invite token works if configured. — Fail: invite link generated and staff account accepted, but staff portal/profile says `Not linked to a studio yet`
+* [x] Staff invite token works if configured. — **Pass 2026-06-04**: `BUG-002` fixed. Staff portal shows linked business after invite acceptance.
 * [x] Staff login works. — Pass: staff account created via invite and logged into staff dashboard
 * [x] Staff dashboard loads. — Pass: staff dashboard loaded
-* [ ] Staff profile image/bio/social fields work. — Fail: profile edit form accepted values but profile page did not show updated bio/specialty/social details; account remains not linked
+* [x] Staff profile image/bio/social fields work. — **Pass 2026-06-04**: `BUG-004` fixed. Profile edits persist after save and refresh.
 * [!] Instructor can propose class if enabled. — Blocked: proposal form loads, but submission could not be confirmed because staff account is not linked to studio
 * [ ] Management staff permissions work if enabled.
 
@@ -425,7 +425,7 @@ npm run dev
 * [ ] Customer cancels booking → seats increase everywhere.
 * [ ] Owner cancels class → customer bookings show cancelled and marketplace hides class.
 * [ ] Admin features class → homepage featured section updates.
-* [ ] Staff profile image changes → owner staff page, public staff profile, class detail instructor card update. — Fail/Blocked: staff profile changes did not persist visibly and staff account was not linked to owner studio
+* [x] Staff profile image changes → owner staff page, public staff profile, class detail instructor card update. — **Pass 2026-06-04**: `BUG-004` fixed. Staff profile changes persist and are visible in owner staff page and profile view.
 
 ## 7.10.1 Step 9 QA Results — 2026-06-04
 
@@ -445,12 +445,12 @@ staff-test@vibepass.test
 
 Passwords were not written to this file.
 
-### Step 9 Bugs Found
+### Step 9 Bugs Found and Fixed (2026-06-04 bug-fix pass)
 
-* Fail: Report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
-* Fail: Staff invite acceptance does not link the staff account to `VibePass QA Studio`; staff dashboard/profile says `Not linked to a studio yet`.
-* Fail: Owner staff page still shows `0 active staff members` after the staff invite was accepted.
-* Fail: Staff profile edit did not visibly persist bio/specialty/social details on the profile page.
+* ~~Fail~~ **Pass 2026-06-04** — `BUG-001`: Report submission failed. Root cause: `reports` table missing in staging. Fix: code (improved error logging) + SQL `phase11-admin-safety-storage.sql` + `report-status-update.sql` applied in staging Supabase. Retested: report submission successful.
+* ~~Fail~~ **Pass 2026-06-04** — `BUG-002`: Staff invite acceptance did not link staff to owner studio. Root cause: old code UPDATE-only on pre-existing rows, never INSERT. Fix: code `ensureStaffRecordForInvite` (INSERT-or-UPDATE) in register and accept routes + SQL `staff-portal-rls.sql` + `staff-portal-rls-fix.sql` applied. Retested: staff accepted invite, linked to business with correct `business_id` and `user_id`.
+* ~~Fail~~ **Pass 2026-06-04** — `BUG-003`: Owner staff page showed `0 active staff members`. Cascaded from BUG-002. Fix: SQL same as BUG-002; staff re-accepted invite. Retested: owner staff list shows accepted staff.
+* ~~Fail~~ **Pass 2026-06-04** — `BUG-004`: Staff profile edits did not visibly persist. Cascaded from BUG-002. Fix: profile update route uses lookup-then-update-by-ID; same SQL as BUG-002. Retested: profile edits persist after refresh on both edit and view pages.
 
 ### Step 9 Blocked Flows
 
@@ -700,9 +700,9 @@ After finishing all checklist work, Claude/Codex must update this section.
 ## Current Status
 
 ```text
-Status: Step 9 QA Support Complete — Documentation Control Pass Complete, Bugs and Blockers Documented
+Status: Step 9 Bug-Fix Pass Complete — BUG-001 to BUG-004 All Fixed and Retested
 Last updated: 2026-06-04
-Updated by: Codex
+Updated by: Claude
 ```
 
 ## Completed
@@ -735,10 +735,9 @@ Updated by: Codex
 
 * Docker live test: `docker build -t vibepass .` and `docker run --env-file .env.local -p 3000:3000 vibepass`
 * Step 8 manual actions: connect GitHub repo to Vercel, add env vars, configure Supabase URLs/storage, then deploy only after approval
-* Admin QA: admin login, owner approval, reports, users/bookings/events, health, audit logs
-* Bug fixes: report SQL/app failure, staff invite linkage, staff profile persistence
+* Admin QA: admin login, owner approval, admin reports moderation, users/bookings/events, health, audit logs
 * QA cleanup: delete temporary staging QA users or change passwords
-* Commit/push for documentation updates only after user approval
+* Commit/push for all code + documentation updates only after user approval
 
 ## Blocked
 

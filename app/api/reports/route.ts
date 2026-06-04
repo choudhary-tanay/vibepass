@@ -54,8 +54,9 @@ export async function POST(request: Request) {
   });
 
   if (error) {
+    console.error("[reports] Supabase insert error:", error.code, error.message, error.details);
     return Response.json(
-      { error: "Report could not be saved. Run the Phase 11 continuation SQL first." },
+      { error: "Report could not be saved. Please try again." },
       { status: 500 }
     );
   }
