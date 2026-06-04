@@ -1,0 +1,32 @@
+# Dependencies — installed fresh during docker build
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output — generated fresh during docker build
+.next
+out
+coverage
+
+# Environment files — never bake secrets into the image
+# Mount at runtime: docker run --env-file .env.local
+.env*
+
+# Git
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# macOS / editor noise
+.DS_Store
+
+# Vercel
+.vercel
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts

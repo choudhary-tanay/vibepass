@@ -1,0 +1,465 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useAppStore } from "@/lib/appStore";
+import { supabase } from "@/lib/supabaseClient";
+import { LocationInput } from "@/components/LocationInput";
+
+const CATEGORIES = [
+  "Yoga",
+  "Pilates",
+  "Fitness",
+  "Dance",
+  "Martial Arts",
+  "Meditation",
+  "Swimming",
+  "Cycling",
+  "Nutrition",
+  "Wellness",
+  "Other",
+];
+
+export default function OwnerSettingsPage() {
+  const { currentBusiness, updateBusiness, loading } = useAppStore();
+
+  const [businessName, setBusinessName] = useState("");
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoWarning, setLogoWarning] = useState<string | null>(null);
+  const [isMarketplaceVisible, setIsMarketplaceVisible] = useState(true);
+
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  async function handleRequestReview(e: React.FormEvent) {
+    e.preventDefault();
+    setReviewSubmitting(true);
+    setReviewError(null);
+    const res = await fetch("/api/owner/businesses/request-review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: reviewNote }),
+    });
+    setReviewSubmitting(false);
+    if (res.ok) {
+      setReviewSubmitted(true);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setReviewError(data.error ?? "Failed to submit request.");
+    }
+  }
+
+  // Pre-fill form when business loads
+  useEffect(() => {
+    if (currentBusiness) {
+      queueMicrotask(() => {
+        setBusinessName(currentBusiness.businessName);
+        setCategory(currentBusiness.category);
+        setDescription(currentBusiness.description ?? "");
+        setLocation(currentBusiness.location ?? "");
+        setPhone(currentBusiness.phone ?? "");
+        setEmail(currentBusiness.email ?? "");
+        setLogoUrl(currentBusiness.logoUrl ?? "");
+        setIsMarketplaceVisible(currentBusiness.isMarketplaceVisible);
+      });
+    }
+  }, [currentBusiness]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-gray-50 px-6 py-10">
+        <div className="mx-auto max-w-2xl">
+          <p className="text-gray-500">Loading...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!currentBusiness) {
+    return (
+      <main className="min-h-screen bg-gray-50 px-6 py-10">
+        <div className="mx-auto max-w-2xl">
+          <div className="rounded-2xl bg-white p-12 text-center shadow-sm">
+            <p className="text-gray-600">No business found for your account.</p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  async function uploadLogo(): Promise<string | undefined> {
+    if (!logoFile) return undefined;
+    setUploadingLogo(true);
+    setLogoWarning(null);
+
+    const ext = logoFile.name.split(".").pop() ?? "jpg";
+    const path = `${currentBusiness?.id ?? "business"}-${Date.now()}.${ext}`;
+    const { data, error } = await supabase.storage
+      .from("business-logos")
+      .upload(path, logoFile, { upsert: true });
+
+    setUploadingLogo(false);
+
+    if (error || !data) {
+      const errorMessage = error?.message ?? "Logo upload failed.";
+      setLogoWarning(
+        errorMessage.toLowerCase().includes("bucket")
+          ? "Logo upload skipped because the business-logos bucket is missing. Run supabase/phase11-admin-safety-storage.sql, then try again."
+          : "Logo upload skipped. The rest of the profile can still be saved."
+      );
+      return undefined;
+    }
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("business-logos").getPublicUrl(data.path);
+
+    return publicUrl;
+  }
+
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentBusiness) return;
+
+    if (!businessName.trim()) {
+      setSaveError("Business name is required.");
+      return;
+    }
+    if (!category) {
+      setSaveError("Category is required.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+
+    const uploadedLogoUrl = await uploadLogo();
+
+    const ok = await updateBusiness(currentBusiness.id, {
+      businessName: businessName.trim(),
+      category,
+      description: description.trim(),
+      location: location.trim(),
+      phone: phone.trim(),
+      email: email.trim(),
+      logoUrl: (uploadedLogoUrl ?? logoUrl.trim()) || undefined,
+      isMarketplaceVisible,
+    });
+
+    setSaving(false);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } else {
+      setSaveError("Failed to save. Please try again.");
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-gray-50 px-6 py-10">
+      <div className="mx-auto max-w-2xl">
+        {/* Header */}
+        <div className="mb-8">
+          <Link
+            href="/owner/dashboard"
+            className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+          >
+            ← Dashboard
+          </Link>
+          <h1 className="text-2xl font-bold text-gray-900">Business Profile</h1>
+          <p className="text-sm text-gray-500">
+            Manage how your business appears in the marketplace.
+          </p>
+        </div>
+
+        {/* Business status banner */}
+        {currentBusiness.status !== "active" && (
+          <div
+            className={`mb-6 rounded-2xl p-5 ${
+              currentBusiness.status === "pending_approval"
+                ? "border border-amber-200 bg-amber-50"
+                : currentBusiness.status === "suspended"
+                ? "border border-orange-200 bg-orange-50"
+                : currentBusiness.status === "rejected"
+                ? "border border-red-200 bg-red-50"
+                : "border border-gray-200 bg-gray-50"
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
+                  currentBusiness.status === "pending_approval"
+                    ? "bg-amber-100 text-amber-700"
+                    : currentBusiness.status === "suspended"
+                    ? "bg-orange-100 text-orange-700"
+                    : currentBusiness.status === "rejected"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {currentBusiness.status.replace(/_/g, " ")}
+              </span>
+            </div>
+            <p
+              className={`mt-2 text-sm font-bold ${
+                currentBusiness.status === "suspended"
+                  ? "text-orange-900"
+                  : currentBusiness.status === "rejected"
+                  ? "text-red-900"
+                  : "text-amber-900"
+              }`}
+            >
+              {currentBusiness.status === "pending_approval" &&
+                "Your business is under review. We will approve it soon before your classes appear in the marketplace."}
+              {currentBusiness.status === "suspended" &&
+                "Your business has been suspended and is not visible in the marketplace."}
+              {currentBusiness.status === "rejected" &&
+                "Your application was not approved. See the reason below and request a re-review if you have addressed it."}
+            </p>
+
+            {currentBusiness.suspensionReason && (
+              <p className="mt-2 text-sm text-orange-800">
+                <strong>Reason:</strong> {currentBusiness.suspensionReason}
+              </p>
+            )}
+            {currentBusiness.rejectionReason && (
+              <p className="mt-2 text-sm text-red-800">
+                <strong>Reason:</strong> {currentBusiness.rejectionReason}
+              </p>
+            )}
+
+            {(currentBusiness.status === "suspended" ||
+              currentBusiness.status === "rejected") && (
+              <div className="mt-4">
+                {currentBusiness.reviewRequested || reviewSubmitted ? (
+                  <p className="text-sm font-semibold text-green-700">
+                    Re-review request sent — our team will get back to you.
+                  </p>
+                ) : (
+                  <form onSubmit={(e) => void handleRequestReview(e)}>
+                    <p className="mb-2 text-sm font-bold text-slate-700">
+                      Request a re-review
+                    </p>
+                    <textarea
+                      value={reviewNote}
+                      onChange={(e) => setReviewNote(e.target.value)}
+                      rows={3}
+                      placeholder="Describe what you have changed or why you should be reconsidered..."
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none focus:border-slate-400"
+                    />
+                    {reviewError && (
+                      <p className="mt-2 text-xs text-red-600">{reviewError}</p>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={reviewSubmitting}
+                      className="mt-3 rounded-full bg-slate-900 px-5 py-2 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {reviewSubmitting ? "Submitting..." : "Submit re-review request"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSave}>
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            <div className="space-y-5">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="mb-3 text-sm font-bold text-gray-700">
+                  Business logo
+                </p>
+                {logoWarning && (
+                  <p className="mb-3 rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                    {logoWarning}
+                  </p>
+                )}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white text-xl font-black text-blue-700 shadow-sm">
+                    {logoPreview || logoUrl ? (
+                      <img
+                        src={logoPreview ?? logoUrl}
+                        alt={`${businessName || "Business"} logo`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      (businessName || "CV").slice(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <label className="inline-flex w-fit cursor-pointer rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                    {logoFile ? "Change logo" : "Upload logo"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      onChange={handleLogoChange}
+                      className="sr-only"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Business name */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Business Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. Zen Yoga Studio"
+                />
+              </div>
+
+              {/* Category */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">Select category</option>
+                  {CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Description
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={4}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Tell customers what your business is about..."
+                />
+              </div>
+
+              {/* Location */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Location
+                </label>
+                <LocationInput
+                  value={location}
+                  onChange={setLocation}
+                  placeholder="e.g. Koramangala, Bangalore"
+                />
+              </div>
+
+              {/* Phone */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. +91 98765 43210"
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  Contact Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="e.g. hello@yourstudio.com"
+                />
+              </div>
+
+              {/* Marketplace visibility toggle */}
+              <div className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">
+                    Show in Marketplace
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    When off, customers cannot find your business or classes.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMarketplaceVisible((v) => !v)}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${
+                    isMarketplaceVisible ? "bg-blue-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                      isMarketplaceVisible ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Error/success feedback */}
+          {saveError && (
+            <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+              {saveError}
+            </div>
+          )}
+          {saved && (
+            <div className="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700">
+              Business profile saved successfully.
+            </div>
+          )}
+
+          {/* Submit */}
+          <div className="mt-6 flex justify-end">
+            <button
+              type="submit"
+              disabled={saving || uploadingLogo}
+              className="rounded-full bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {uploadingLogo ? "Uploading logo..." : saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+  );
+}
