@@ -34,7 +34,7 @@ Use only these status values:
 | Launch status | Private staging only, not public launch |
 | Payment mode | Dummy payment only for staging |
 | Razorpay | Deferred |
-| Admin portal QA | Pending |
+| Admin portal QA | NF-0A passed 2026-06-04 — admin access, owner approval, cross-portal retest passed |
 
 Previously open bugs — all resolved in Step 9 bug-fix pass (2026-06-04):
 
@@ -84,7 +84,7 @@ Previously open bugs — all resolved in Step 9 bug-fix pass (2026-06-04):
 | `OWN-006` | Create class/event | Owner | Partially Completed | Owner creates draft or class/event records. | `/owner/classes/create` | `app/owner/classes/create/page.tsx` | `classes`, `class_staff`, storage buckets | Business approval, storage | Pass/partial | Public listing blocked while business pending. |
 | `OWN-007` | Edit class/event | Owner | Needs QA | Owner edits existing class/event. | `/owner/classes/[id]/edit` | `app/owner/classes/[id]/edit/page.tsx` | `classes`, `class_staff` | Ownership, storage, visibility | Not covered in Step 9 | Retest drafts and published edits. |
 | `OWN-008` | Draft class/event management | Owner | Partially Completed | Owner can manage drafts in class list. | `/owner/classes` | `app/owner/classes/page.tsx` | `classes` | Owner business record | Pass/partial | Public draft visibility should stay hidden. |
-| `OWN-009` | Publish/unpublish class/event | Owner | Blocked | Owner publishing is constrained by business approval and visibility rules. | `/owner/classes`, `/owner/classes/[id]/edit` | Owner class pages, class APIs | `classes`, `businesses` | Admin approval | Blocked in Step 9 | Owner-created public visibility depends on admin approval. |
+| `OWN-009` | Publish/unpublish class/event | Owner | Completed | Owner publishing is enabled once business has admin approval. | `/owner/classes`, `/owner/classes/[id]/edit` | Owner class pages, class APIs | `classes`, `businesses` | Admin approval | Pass 2026-06-04 (NF-0A) | Owner published draft class after admin approval. Class appeared publicly on marketplace. |
 | `OWN-010` | Cancel class/event | Owner | Needs QA | Owner can cancel class/event and related bookings. | `/owner/classes`, `/api/owner/classes/[id]/cancel` | `app/api/owner/classes/[id]/cancel/route.ts` | `classes`, `bookings`, `payments` | Refund/payment policy, booking visibility | Needs QA | Retest booking/customer impact. |
 | `OWN-011` | Class image upload/fallback | Owner | Partially Completed | Uses uploaded class image or fallback template artwork. | `/owner/classes/create`, `/owner/classes/[id]/edit` | Owner class pages, `components/ClassImageTemplate.tsx` | Supabase Storage, `classes.image_url` | Storage buckets | Pass for fallback; upload needs QA | Verify `class-images` bucket in Supabase. |
 | `OWN-012` | Owner bookings page | Owner | Partially Completed | Owner views bookings for their classes. | `/owner/bookings` | `app/owner/bookings/page.tsx` | `bookings`, `classes`, `payments` | Customer bookings, approved public class | Pass/partial | New owner-created booking linkage blocked by approval. |
@@ -122,10 +122,10 @@ Admin features are marked `Admin QA Pending` when implemented by routes/docs but
 
 | Feature ID | Feature Name | User Role | Status | Description | Main Routes | Main Files | Data/Tables | Dependencies | QA Status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ADMIN-001` | Admin login/protected layout | Admin | Admin QA Pending | Admin-only route shell and access guard. | `/admin/*`, `/auth/login` | `app/admin/layout.tsx`, `components/AdminSidebar.tsx`, `lib/adminServer.ts` | `profiles` | Admin role/profile | Not tested | Do not mark complete until admin QA. |
-| `ADMIN-002` | Admin dashboard | Admin | Admin QA Pending | Platform overview and urgent actions. | `/admin/dashboard` | `app/admin/dashboard/page.tsx` | `businesses`, `classes`, `bookings`, `reports` | Admin auth, data joins | Not tested | Admin QA pending. |
-| `ADMIN-003` | Business approval/rejection/suspension | Admin | Admin QA Pending | Controls business status and marketplace eligibility. | `/admin/owner-approvals`, `/admin/businesses/[id]` | Admin business pages/APIs | `businesses`, `admin_audit_logs` | Audit logs, visibility rules | Not tested | Blocks owner-created visibility. |
-| `ADMIN-004` | Owner approvals | Admin | Admin QA Pending | Queue for pending owner/business approvals. | `/admin/owner-approvals` | `app/admin/owner-approvals/page.tsx` | `businesses` | Owner signup | Not tested | Needed to unblock owner QA. |
+| `ADMIN-001` | Admin login/protected layout | Admin | Completed | Admin-only route shell and access guard. | `/admin/*`, `/auth/login` | `app/admin/layout.tsx`, `components/AdminSidebar.tsx`, `lib/adminServer.ts` | `profiles` | Admin role/profile | Pass 2026-06-04 (NF-0A) | Admin login, dashboard redirect, and non-admin access denial all confirmed. |
+| `ADMIN-002` | Admin dashboard | Admin | Completed | Platform overview and urgent actions. | `/admin/dashboard` | `app/admin/dashboard/page.tsx` | `businesses`, `classes`, `bookings`, `reports` | Admin auth, data joins | Pass 2026-06-04 (NF-0A) | Admin dashboard loaded with stat cards and action queue. |
+| `ADMIN-003` | Business approval/rejection/suspension | Admin | Completed | Controls business status and marketplace eligibility. | `/admin/owner-approvals`, `/admin/businesses/[id]` | Admin business pages/APIs | `businesses`, `admin_audit_logs` | Audit logs, visibility rules | Pass 2026-06-04 (NF-0A) | Admin approved owner — business became active and marketplace visible. ReasonModal bug fixed. |
+| `ADMIN-004` | Owner approvals | Admin | Completed | Queue for pending owner/business approvals. | `/admin/owner-approvals` | `app/admin/owner-approvals/page.tsx` | `businesses` | Owner signup | Pass 2026-06-04 (NF-0A) | Pending approvals queue loaded and approve action worked correctly. |
 | `ADMIN-005` | Admin business management | Admin | Admin QA Pending | View/edit businesses, margins, categories, notes. | `/admin/businesses`, `/admin/businesses/[id]` | Admin business pages/APIs | `businesses` | Admin auth | Not tested | Needs admin QA. |
 | `ADMIN-006` | Admin class/event management | Admin | Admin QA Pending | View, hide/show, feature, archive class/event records. | `/admin/classes` | `app/admin/classes/page.tsx`, admin class APIs | `classes`, `businesses`, `admin_audit_logs` | Visibility rules, featured placement | Not tested | Needs admin QA. |
 | `ADMIN-007` | Admin user management | Admin | Admin QA Pending | View users and create/invite users. | `/admin/users`, `/admin/users/create`, `/api/admin/user-invites` | Admin user pages/APIs | `profiles`, `admin_user_invites`, `auth.users` | Supabase Auth invite setup | Not tested | Needs admin QA. |
@@ -146,7 +146,7 @@ Admin features are marked `Admin QA Pending` when implemented by routes/docs but
 | `PLAT-002` | Role-based redirects | All roles | Completed | Redirects users to portal by role. | `/auth/login` | `app/auth/login/page.tsx` | `profiles` | Auth/profile rows | Pass for customer/owner/staff; admin pending | Retest admin later. |
 | `PLAT-003` | Cross-portal data linkage | All roles | Partially Completed | Shared data updates across public, owner, staff, admin. | All portals | Portal pages/APIs | Core tables | Mutations and RLS | Partial | Staff linkage bugs are current failure. |
 | `PLAT-004` | Class/event visibility rules | Public, owner, admin | Partially Completed | Controls what appears publicly. | `/classes`, `/classes/[id]`, owner/admin class routes | Public/owner/admin class pages | `classes`, `businesses` | Business approval, class status | Pass/blocked | Owner-created visibility blocked until admin approval. |
-| `PLAT-005` | Business approval visibility rules | Owner, admin, public | Admin QA Pending | Active businesses can appear publicly; pending businesses are limited. | Owner/admin/public routes | Owner/admin business pages | `businesses`, `classes` | Admin approval | Admin QA pending | Blocks owner-created public listing tests. |
+| `PLAT-005` | Business approval visibility rules | Owner, admin, public | Completed | Active businesses can appear publicly; pending businesses are limited. | Owner/admin/public routes | Owner/admin business pages | `businesses`, `classes` | Admin approval | Pass 2026-06-04 (NF-0A) | After admin approval, owner class appeared publicly on marketplace. Server-side filter confirmed working. |
 | `PLAT-006` | Booking capacity enforcement | Customer, owner, admin | Completed | Atomic capacity check prevents overbooking. | `/api/bookings/create`, booking pages | Booking API, `supabase/book-if-capacity.sql` | `classes`, `bookings` | RPC installed | Pass in Step 9 | Retest after booking/payment changes. |
 | `PLAT-007` | Dummy payment mode | Customer, owner, admin | Completed | Staging-only simulated payment path. | `/classes/[id]/book`, `/api/bookings/create` | `BookingForm.tsx`, booking API | `bookings`, `payments` | Env vars | Pass in Step 9 | Must remain active for staging. |
 | `PLAT-008` | Razorpay deferred mode | Customer, admin | Deferred | Real payment integration retained but not active. | `/api/payments/*` | `app/api/payments/create-order/route.ts`, `app/api/payments/verify/route.ts` | `payments`, `bookings` | Razorpay keys, real payment decision | Deferred | Do not enable for staging. |
@@ -233,14 +233,17 @@ Current staff status:
 
 ## 7. Admin Portal Features
 
-Admin features exist in routes/docs but were intentionally not tested in Step 9. Mark implemented admin areas as `Admin QA Pending` until they are manually verified.
+Admin features exist in routes/docs. NF-0A QA was completed 2026-06-04 for admin access, dashboard, and owner approval flow.
 
-Admin areas needing QA:
+Tested in NF-0A — 2026-06-04:
 
-- Admin login/protected layout
-- Admin dashboard
-- Business approval/rejection/suspension
-- Owner approvals
+- Admin login/protected layout — **Completed**
+- Admin dashboard — **Completed**
+- Business approval/rejection/suspension — **Completed** (approve tested and passed; rejection/suspend/reactivate optional, not required for NF-0A)
+- Owner approvals — **Completed**
+
+Still pending QA (NF-0B):
+
 - Business management
 - Class/event management
 - User management
@@ -253,7 +256,7 @@ Admin areas needing QA:
 - Health page
 - Archive/delete/soft delete controls
 
-Do not mark admin features fully completed until admin QA is performed and recorded.
+Do not mark remaining admin features as completed until they are manually verified in NF-0B.
 
 ## 8. Cross-Portal / Platform Features
 
@@ -343,13 +346,95 @@ Before changing any feature, Codex/Claude must answer:
 - Does this change affect staging deployment?
 - Does this change affect dummy payment, auth, reports, staff, admin, or bookings?
 
-## 12. Feature Update Log
+## 12. Planned New Features — Phase Mapping
+
+New features planned in `VIBEPASS_NEW_FEATURE_ROADMAP.md`. All rows have status `Planned`. Approved rows will be updated to `Approved for Phase` when a phase begins and will receive full inventory rows. Phases run in order: NF-0 → NF-1 → NF-2 → NF-3 → NF-4 → NF-5 → NF-6 → NF-7.
+
+| Feature ID | Feature Name | Portal | Priority | Status | Suggested Phase |
+| --- | --- | --- | --- | --- | --- |
+| `NF-ADMIN-001` | Admin QA pass | Admin | P0 | In Progress | NF-0 |
+| `NF-ADMIN-003` | Owner approval workflow polish | Admin | P0 | Completed | NF-0 |
+| `NF-ADMIN-008` | Platform health dashboard | Admin | P0 | Needs QA | NF-0 |
+| `NF-PLAT-004` | Storage bucket setup validation | Platform | P0 | Approved for Phase | NF-0 |
+| `NF-PLAT-010` | Legal pages (Terms, Privacy, Refund/Cancellation) | Public | P0 | Deferred | Pre-public-launch (not NF-0) |
+| `NF-PLAT-007` | Error logging/observability | Platform | P1 | Approved for Phase | NF-0 |
+| `NF-OWN-001` | Owner onboarding checklist | Owner | P0 | Planned | NF-1 |
+| `NF-OWN-002` | Business profile completeness score | Owner | P1 | Planned | NF-1 |
+| `NF-OWN-003` | Class duplicate/template feature | Owner | P2 | Planned | NF-1 |
+| `NF-OWN-004` | Draft autosave for class creation | Owner | P1 | Planned | NF-1 |
+| `NF-OWN-005` | Better class image/gallery management | Owner | P1 | Planned | NF-1 |
+| `NF-PLAT-005` | Centralized status labels/badges | Platform | P2 | Planned | NF-1 |
+| `NF-CUST-001` | Favorites / save class or business | Customer | P2 | Planned | NF-2 |
+| `NF-CUST-002` | Better customer profile | Customer | P1 | Planned | NF-2 |
+| `NF-CUST-003` | Customer preferences | Customer | P2 | Planned | NF-2 |
+| `NF-CUST-004` | Improved booking history filters | Customer | P2 | Planned | NF-2 |
+| `NF-CUST-005` | Cancel/reschedule clarity | Customer | P1 | Planned | NF-2 |
+| `NF-CUST-008` | Share class link | Customer/Public | P2 | Planned | NF-2 |
+| `NF-CUST-009` | Add to Google/Apple Calendar | Customer | P2 | Planned | NF-2 |
+| `NF-CUST-010` | Better search filters | Customer/Public | P1 | Planned | NF-2 |
+| `NF-CUST-011` | Location-based discovery | Customer/Public | P2 | Planned | NF-2 |
+| `NF-PLAT-003` | Search indexing strategy | Public | P2 | Planned | NF-2 |
+| `NF-PLAT-009` | Playwright automated smoke tests | Platform | P1 | Planned | NF-2 |
+| `NF-STAFF-001` | Staff profile completion checklist | Staff | P1 | Planned | NF-3 |
+| `NF-STAFF-002` | Staff availability | Staff | P2 | Planned | NF-3 |
+| `NF-STAFF-003` | Staff assigned class calendar | Staff | P2 | Planned | NF-3 |
+| `NF-STAFF-004` | Staff class proposal flow improvement | Staff/Owner | P1 | Planned | NF-3 |
+| `NF-STAFF-005` | Staff earnings/performance view | Staff | P2 | Planned | NF-3 |
+| `NF-STAFF-007` | Staff public profile preview | Staff/Public | P1 | Planned | NF-3 |
+| `NF-STAFF-009` | Staff schedule conflict warnings | Staff/Owner | P2 | Planned | NF-3 |
+| `NF-STAFF-010` | Staff profile share link | Staff/Public | P2 | Planned | NF-3 |
+| `NF-OWN-006` | Staff schedule calendar | Owner | P2 | Planned | NF-3 |
+| `NF-ADMIN-002` | Admin create/manage users | Admin | P1 | Planned | NF-4 |
+| `NF-ADMIN-004` | Reports moderation workflow | Admin | P1 | Planned | NF-4 |
+| `NF-ADMIN-005` | Featured placement manager improvement | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-006` | Admin analytics dashboard improvement | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-007` | Audit log improvements | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-009` | Payment issue dashboard | Admin | P1 | Planned | NF-4 |
+| `NF-ADMIN-010` | Storage/media management | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-011` | Soft delete/archive management | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-012` | Data export tools | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-013` | Role management | Admin | P2 | Planned | NF-4 |
+| `NF-ADMIN-014` | Support/admin notes | Admin | P2 | Planned | NF-4 |
+| `NF-OWN-007` | Booking export CSV | Owner | P1 | Planned | NF-4 |
+| `NF-OWN-008` | Customer list/client management | Owner | P2 | Planned | NF-4 |
+| `NF-OWN-009` | Owner customer notes | Owner | P2 | Planned | NF-4 |
+| `NF-OWN-010` | Revenue analytics improvements | Owner | P1 | Planned | NF-4 |
+| `NF-OWN-011` | Staff performance analytics improvements | Owner | P2 | Planned | NF-4 |
+| `NF-PLAT-001` | Notification preference system | Platform | P1 | Planned | NF-5 |
+| `NF-PLAT-002` | Email template improvements | Platform | P1 | Planned | NF-5 |
+| `NF-PLAT-008` | Analytics event tracking | Platform | P2 | Planned | NF-5 |
+| `NF-CUST-006` | Reviews and ratings | Customer | P2 | Planned | NF-5 |
+| `NF-CUST-007` | Waitlist for full classes | Customer | P1 | Planned | NF-5 |
+| `NF-CUST-013` | Customer notification preferences | Customer | P1 | Planned | NF-5 |
+| `NF-OWN-012` | Attendance check-in | Owner/Staff | P2 | Planned | NF-5 |
+| `NF-OWN-015` | Owner notification preferences | Owner | P1 | Planned | NF-5 |
+| `NF-STAFF-006` | Staff attendance/check-in view | Staff | P2 | Planned | NF-5 |
+| `NF-STAFF-008` | Staff notification preferences | Staff | P2 | Planned | NF-5 |
+| `NF-OWN-013` | Cancellation/refund management | Owner/Admin | P1 | Planned | NF-6 |
+| `NF-OWN-014` | Promotion/coupon setup | Owner | P3 | Planned | NF-6 |
+| `NF-OWN-017` | Memberships/packages/passes | Owner/Customer | P3 | Planned | NF-6 |
+| `NF-PLAT-011` | Production readiness checklist | Platform | P1 | Planned | NF-6 |
+| `NF-PLAT-012` | Backup/rollback checklist | Platform | P1 | Planned | NF-6 |
+| `NF-CUST-012` | Recommended classes | Customer | P3 | Planned | NF-7 |
+| `NF-CUST-014` | Customer support/contact flow | Customer | P1 | Planned | NF-7 |
+| `NF-CUST-015` | AI class finder/chat assistant | Customer | P3 | Planned | NF-7 |
+| `NF-OWN-016` | Multi-location business support | Owner | P3 | Planned | NF-7 |
+| `NF-AI-001` | AI customer class finder | Customer | P3 | Planned | NF-7 |
+| `NF-AI-002` | AI event/class description helper | Owner | P3 | Planned | NF-7 |
+| `NF-AI-003` | AI image suggestion/generation helper | Owner | P3 | Planned | NF-7 |
+| `NF-AI-004` | AI owner analytics summary | Owner | P3 | Planned | NF-7 |
+| `NF-AI-005` | AI admin daily platform summary | Admin | P3 | Planned | NF-7 |
+| `NF-AI-006` | AI support chatbot | Customer/All | P3 | Planned | NF-7 |
+| `NF-AI-007` | AI auto-tagging for classes | Owner | P3 | Planned | NF-7 |
+
+## 13. Feature Update Log
 
 | Date | Feature ID | Feature Name | Change Type | Summary | Files Changed | Tests Run | Status After Change | Updated By |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-06-04 | `DEVOPS-011` | Feature inventory | Created | Created PM-facing feature inventory and linked it to blueprint, QA plan, README, and master plan. | `VIBEPASS_FEATURE_INVENTORY.md`, `VIBEPASS_PROJECT_BLUEPRINT.md`, `VIBEPASS_AUTOMATION_TEST_PLAN.md`, `README.md`, `PROJECT_MASTER_PLAN.md` | Documentation review, `git diff --check` | Completed | Codex |
 | 2026-06-04 | `CUST-016`, `CUST-017`, `PLAT-015` | Reports (`BUG-001`) | Bug fix — resolved | Code: improved error logging, removed hardcoded SQL hint. SQL: `phase11-admin-safety-storage.sql` + `report-status-update.sql` applied in staging Supabase. Retested and passed. | `app/api/reports/route.ts`, `supabase/phase11-admin-safety-storage.sql`, `supabase/report-status-update.sql` | `npm run build` passed; manual staging retest passed | Completed | Claude |
 | 2026-06-04 | `STAFF-002`, `STAFF-003`, `OWN-014`, `OWN-016`, `STAFF-007`, `STAFF-008` | Staff invite/linkage/profile (`BUG-002`, `BUG-003`, `BUG-004`) | Bug fix — resolved | Code: `ensureStaffRecordForInvite` in register/accept routes (INSERT-or-UPDATE). Profile update uses lookup-then-update-by-ID. SQL: `staff-portal-rls.sql` + `staff-portal-rls-fix.sql` applied in staging Supabase. QA staff re-accepted invite. Retested and passed. | `app/api/staff/invite/register/route.ts`, `app/api/staff/invite/accept/route.ts`, `app/api/staff/profile/update/route.ts`, `supabase/staff-portal-rls.sql`, `supabase/staff-portal-rls-fix.sql` | `npm run build` passed; manual staging retest passed | Completed | Claude |
+| 2026-06-04 | `ADMIN-001`, `ADMIN-002`, `ADMIN-003`, `ADMIN-004`, `OWN-009`, `PLAT-005`, `NF-ADMIN-003` | NF-0A admin access + owner approval flow | QA — passed | Manual admin QA completed on staging. Admin login, dashboard, Access Denied for non-admin, owner approval, cross-portal retest (owner publishes → customer books) all passed. ReasonModal required-reason bug fixed. Rejection/suspend/reactivate marked optional (not required for NF-0A). | `app/admin/owner-approvals/page.tsx` (bug fix), 5 documentation files | `npm run build` passed; manual staging NF-0A QA passed | Completed | Claude |
 
 ## 13. Current PM Readiness Summary
 
@@ -366,7 +451,12 @@ Ready for private staging:
 - Owner pending approval state
 - Owner dashboard/class creation/listing basics
 - Owner analytics page load
+- Owner publishing after admin approval (NF-0A passed)
 - Staff invite entry and partial staff login/dashboard access
+- Admin login and access (NF-0A passed)
+- Admin dashboard (NF-0A passed)
+- Owner approval flow (NF-0A passed)
+- Cross-portal: owner publishes → customer books → owner bookings update (NF-0A passed)
 - Vercel staging documentation and current staging URL
 - Build verification from Step 5
 - Manual QA plan and Step 9 QA results
@@ -374,31 +464,31 @@ Ready for private staging:
 Not ready for public launch:
 
 - Real payments and Razorpay production flow
-- Admin approval/moderation QA
-- Report submission/moderation reliability
-- Staff invite/profile/linkage reliability
-- Owner-created public publishing and booking flow until admin approval is tested
+- Admin class/reports/users/bookings/health/storage QA (NF-0B)
 - Storage/image upload confidence across buckets
 - Legal/refund/public launch readiness
 - Automated regression testing
 
-Bugs that should be fixed next:
+Bugs previously requiring fixes — all resolved 2026-06-04:
 
-1. `BUG-001`: report submission SQL/app failure.
-2. `BUG-002`: staff invite acceptance does not link staff to owner studio.
-3. `BUG-003`: owner staff page does not show accepted staff.
-4. `BUG-004`: staff profile edits do not visibly persist.
+1. `BUG-001`: report submission SQL/app failure — **Fixed**.
+2. `BUG-002`: staff invite acceptance did not link staff to owner studio — **Fixed**.
+3. `BUG-003`: owner staff page did not show accepted staff — **Fixed**.
+4. `BUG-004`: staff profile edits did not visibly persist — **Fixed**.
+5. `ReasonModal empty reason allowed in reject/suspend` — **Fixed** (NF-0A).
 
-Areas that need admin QA:
+Admin areas still needing QA (NF-0B):
 
-- Admin login/protected layout
-- Owner/business approval
-- Admin reports moderation
-- Admin business/class/user/booking views
-- Admin featured placement
-- Admin analytics
-- Admin audit logs
-- Admin health page
+- Business management
+- Class/event management
+- User management
+- Booking view
+- Payment/payment issue visibility
+- Reports moderation
+- Featured placement management
+- Analytics
+- Audit logs
+- Health page
 
 Areas that need future automation testing:
 

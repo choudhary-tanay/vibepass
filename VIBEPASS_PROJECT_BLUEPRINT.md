@@ -19,7 +19,7 @@ Current launch constraints:
 - Product name: VibePass.
 - Launch type: private staging only, not public launch.
 - Staging payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`.
-- Admin QA is still pending.
+- Admin QA: NF-0A passed 2026-06-04 (admin access + owner approval + cross-portal). Admin areas 6–14 pending (NF-0B).
 
 ## Current Product Truth
 
@@ -39,7 +39,7 @@ Current launch constraints:
 | Database/auth/storage | Supabase Auth, Postgres, RLS, Storage |
 | Email | Resend optional |
 | Maps | Google Maps optional |
-| Admin QA | Admin QA is still pending; admin portal was not completed in Step 9 by user instruction |
+| Admin QA | NF-0A passed 2026-06-04 — admin access, owner approval, cross-portal retest. Admin areas 6–14 (class management, reports, users, health, storage, legal) pending (NF-0B). |
 
 ## Tech Stack
 
@@ -67,6 +67,7 @@ Use these files together:
 | `VIBEPASS_AUTOMATION_TEST_PLAN.md` | Manual and future automated test tracker |
 | `VIBEPASS_FEATURE_INVENTORY.md` | PM-facing feature inventory, feature statuses, ownership, dependencies, QA status |
 | `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md` | Launch-step checklist and Step 9 QA results |
+| `VIBEPASS_NEW_FEATURE_ROADMAP.md` | New feature backlog, phase plan, priorities, and phase detail templates — planning source of truth for all future work |
 | `VERCEL_STAGING_DEPLOYMENT.md` | Vercel/Supabase staging setup guide |
 | `VIBEPASS_PROJECT_HANDBOOK.md` | Detailed product and database handbook |
 | `SYSTEM_FLOW.md` | Historical and current system flow reference |
@@ -90,8 +91,7 @@ All Step 9 QA bugs were fixed in the 2026-06-04 bug-fix pass. No open bugs from 
 
 | Blocker | Meaning |
 | --- | --- |
-| Admin approval required | Owner-created published classes should not appear publicly until the business/class approval rules allow them |
-| Admin portal skipped | Admin login, owner approval, reports, users/bookings/events, health, and audit logs still need manual/admin QA |
+| Admin NF-0B pending | Admin areas 6–14 (class management, reports, users, bookings, featured, audit logs, health, storage, legal pages) not yet QA'd. Block NF-1 until NF-0B is approved. |
 | Temporary staging QA users | Delete these users or change passwords after QA |
 
 ## Portal Map
@@ -376,9 +376,10 @@ Use this before editing. A small file change can affect several portals.
 | Staff login/dashboard | Partial | Depends on invite/linkage |
 | Staff profile update | Fail | `BUG-004` |
 | Staff assigned classes/proposals | Blocked | Staff linkage bug |
-| Admin portal | Untested | Skipped by instruction |
-| Admin owner approval | Untested | Manual/admin testing required |
-| Admin reports | Untested and report creation failing | Fix `BUG-001`, then test |
+| Admin portal (access, dashboard) | Pass 2026-06-04 (NF-0A) | Admin login, dashboard, and non-admin denial all passed |
+| Admin owner approval | Pass 2026-06-04 (NF-0A) | Approve action tested and passed. Rejection/suspend optional. |
+| Admin reports | Untested — NF-0B | `BUG-001` fixed; admin reports moderation pending NF-0B |
+| Owner publish after approval | Pass 2026-06-04 (NF-0A) | Owner published class → appeared on marketplace |
 | Supabase storage | Needs verification | Buckets/policies must exist in staging |
 | Razorpay | Deferred | Do not enable for staging |
 | Vercel staging | Prepared/deployed | Guide exists; current URL provided |
@@ -415,11 +416,18 @@ Use this before editing. A small file change can affect several portals.
 
 ## Recommended Next Task
 
-Recommended next task after this documentation pass:
+NF-0A is complete. Recommended next: **NF-0B — Remaining Admin Areas QA**.
 
-1. Decide whether to fix `BUG-001` first or the staff linkage bugs first.
-2. For `BUG-001`, verify staging has the required report SQL and RLS, then retest public report submission and admin report visibility.
-3. For `BUG-002`/`BUG-003`, inspect the staff invite registration path and decide whether invite acceptance should create a missing `staff` row or whether owner invite creation should pre-create it.
-4. For `BUG-004`, retest profile update only after staff linkage is fixed.
+NF-0B covers admin areas 6–14:
 
-Do not start these fixes without user approval.
+1. Admin class/event management (hide, restore, archive)
+2. Reports moderation (filter, status update, audit log)
+3. Featured placement (set featured, homepage carousel)
+4. Admin users page (list, invite)
+5. Admin bookings/payments visibility (`refund_required` records)
+6. Admin audit logs (post-approval log entries visible)
+7. Admin health page (env vars, Supabase, storage checks)
+8. Storage bucket confirmation (`class-images`, `profile-images`, `business-logos`)
+9. Legal pages (deferred to pre-public-launch — not blocking NF-0B)
+
+Do not start NF-1 until NF-0B is approved.

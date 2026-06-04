@@ -60,6 +60,7 @@ function ReasonModal({
           rows={4}
           className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none focus:border-slate-400"
         />
+        <p className="mt-2 text-xs text-slate-400">A reason is required — it will be shown to the owner.</p>
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
@@ -69,7 +70,8 @@ function ReasonModal({
           </button>
           <button
             onClick={() => onConfirm(reason)}
-            className={`rounded-full px-4 py-2 text-sm font-bold text-white ${
+            disabled={!reason.trim()}
+            className={`rounded-full px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40 ${
               action === "reject"
                 ? "bg-red-600 hover:bg-red-700"
                 : "bg-orange-500 hover:bg-orange-600"

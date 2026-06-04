@@ -19,14 +19,16 @@ Current operational tracking also lives in:
 
 - `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md`
 
-Step 9 staging QA found that some Phase 11/continuation outcomes are not verified in staging:
+Step 9 staging QA bugs — **all fixed and retested 2026-06-04**:
 
-- `BUG-001`: report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
-- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
-- `BUG-003`: owner staff page still shows `0` staff after invite acceptance.
-- `BUG-004`: staff profile edits do not visibly persist.
+- `BUG-001` **Fixed 2026-06-04** — report submission failed with `Report could not be saved. Run the Phase 11 continuation SQL first.` Fix: code + SQL `phase11-admin-safety-storage.sql` + `report-status-update.sql` applied in staging. Retested: report submission successful.
+- `BUG-002` **Fixed 2026-06-04** — staff invite acceptance did not link staff to the owner studio. Fix: `ensureStaffRecordForInvite` (INSERT-or-UPDATE) in register/accept routes + SQL `staff-portal-rls.sql` + `staff-portal-rls-fix.sql` applied in staging. Retested: staff links to business with correct `business_id` and `user_id`.
+- `BUG-003` **Fixed 2026-06-04** — owner staff page showed `0` staff after invite acceptance. Cascaded from BUG-002. Same SQL fix. Retested: owner staff list shows accepted staff.
+- `BUG-004` **Fixed 2026-06-04** — staff profile edits did not visibly persist. Fix: profile update route uses lookup-then-update-by-ID. Same SQL as BUG-002. Retested: edits persist after save and refresh.
 
-Before treating Phase 11 safety/reporting/storage/staff flows as launch-ready, verify the staging database has the required reports and storage SQL applied, including `supabase/phase11-admin-safety-storage.sql` and `supabase/report-status-update.sql`, and retest the failing flows.
+Phase 11 safety/reporting/storage/staff flows are now verified in staging. The required SQL (`phase11-admin-safety-storage.sql`, `report-status-update.sql`, `staff-portal-rls.sql`, `staff-portal-rls-fix.sql`) has been applied.
+
+Admin QA is still pending — see `VIBEPASS_NEW_FEATURE_ROADMAP.md` Phase NF-0 for the admin QA checklist.
 
 ## 1. Purpose of This Update
 

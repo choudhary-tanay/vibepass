@@ -27,7 +27,7 @@ Current launch constraints:
 | Automated E2E tests | Not currently established |
 | Build check | `npm run build` passed during Step 5 |
 | Manual staging QA | Step 9 completed for public/customer, owner, and staff flows |
-| Admin QA | Admin QA is still pending; admin portal was skipped by user instruction |
+| Admin QA | NF-0A tested 2026-06-04 — admin access, dashboard, owner approval, cross-portal retest passed. Admin areas 6–14 still pending (NF-0B). |
 | Payment QA | Dummy payment only; Razorpay deferred |
 | Staging URL | `https://vibepass-staging.vercel.app/` |
 
@@ -193,10 +193,10 @@ Use this checklist after bug fixes or before staging deployment decisions.
 
 ### Admin
 
-- [ ] Admin login works.
-- [ ] Admin dashboard loads.
-- [ ] Admin owner approvals load.
-- [ ] Admin can approve/reject owner business.
+- [x] Admin login works. — **Pass 2026-06-04 (NF-0A)**
+- [x] Admin dashboard loads. — **Pass 2026-06-04 (NF-0A)**
+- [x] Admin owner approvals load. — **Pass 2026-06-04 (NF-0A)**
+- [x] Admin can approve owner business. — **Pass 2026-06-04 (NF-0A)** (rejection/suspend: optional — not required for NF-0A pass)
 - [ ] Admin classes page loads.
 - [ ] Admin can moderate class visibility.
 - [ ] Admin bookings page loads.
@@ -247,6 +247,241 @@ Suggested future test files:
 | `tests/e2e/reports.spec.ts` | Report creation and admin moderation |
 | `tests/db/migrations-smoke.sql` | Required tables, policies, RPCs, buckets |
 
+## Future QA Coverage by New Feature Phase
+
+This section maps each new feature phase to the QA work it will require. Update rows here when a phase is approved and started. Every new feature must be retested before being marked `Completed`.
+
+### Phase NF-0: Admin QA and Launch Readiness Cleanup
+
+**Phase approved 2026-06-04. NF-0A code inspection and manual QA complete 2026-06-04. One bug fixed: ReasonModal required empty-reason confirmation — confirm button now disabled until reason is non-empty. NF-0A manual QA passed — admin access, dashboard, owner approval flow, and cross-portal retest (owner publishes → customer books) all confirmed. Rejection flow: optional — not required for NF-0A pass. Admin areas 6–14 (class management, reports, featured, users, bookings, audit logs, health, storage, legal pages) are pending — NF-0B.**
+
+**Prerequisite:** Admin user must exist in Supabase `profiles` with `role = 'admin'` before these tests can run.
+
+#### Area 1: Admin Login / Access Check
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Admin login | Admin credentials work at `/auth/login` and redirect to `/admin/dashboard` | Manual |
+| Auth redirect | Unauthenticated user visiting any `/admin/*` route is redirected to `/auth/login` | Manual |
+| Non-admin access denial | Non-admin authenticated user sees Access Denied panel — no admin data leaked | Manual |
+| Admin API protection | `POST /api/admin/businesses/[id]/status` returns 403 Forbidden for non-admin | Manual |
+
+#### Area 2: Admin Dashboard
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Dashboard load | `/admin/dashboard` loads with correct stat cards | Manual |
+| Action queue | Pending approvals, open reports, hidden classes, refund-required counts are accurate | Manual |
+| Platform health ring | Health score renders and reflects business/class/report state | Manual |
+| Dashboard links | All action queue links navigate to correct subpages | Manual |
+
+#### Area 3: Owner Approval Flow
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Pending list | `/admin/owner-approvals` shows staging owner with `pending_approval` status | Manual |
+| Tab navigation | Pending, Re-review Requests, and All tabs show correct filtered lists | Manual |
+| Business detail | Business name, category, email, created date visible in card | Manual |
+
+#### Area 4 & 5: Business Approval / Rejection / Suspension / Reactivation
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Approve business | Admin approves → `businesses.status = 'active'` and `is_marketplace_visible = true` in Supabase | Manual |
+| Owner sees approval | Owner dashboard shows active status after approval | Manual |
+| Reject with reason | Admin rejects with a reason → owner settings shows rejection reason | Manual |
+| Suspend with reason | Admin suspends → business hidden from marketplace | Manual |
+| Reactivate | Admin reactivates suspended business → business returns to `active` | Manual |
+| Audit log — approval | Each action creates correct row in `admin_audit_logs` | Manual |
+
+#### Area 6: Admin Class / Event Management
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Class list load | `/admin/classes` loads and shows all classes with status | Manual |
+| Hide class | Admin hides class → `is_admin_hidden = true`, class disappears from marketplace | Manual |
+| Restore class | Admin restores class → class reappears in marketplace | Manual |
+| Archive class | Admin archives class → class status becomes `archived`, disappears from active views | Manual |
+
+#### Area 7: Reports Moderation
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Reports load | `/admin/reports` loads and shows Step 9 test report | Manual |
+| Severity display | Severity pill (low/medium/high/urgent) is visible on each report row | Manual |
+| Status filter | Filtering by open/reviewing/resolved/dismissed/action_taken works | Manual |
+| Status update — reviewing | Admin marks report as `reviewing` → status persists after reload | Manual |
+| Status update — resolved | Admin resolves report → audit log row created | Manual |
+| Entity link | Report row links to the reported class/business/staff | Manual |
+
+#### Area 8: Featured Placement
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Featured page load | `/admin/featured` loads and shows current featured classes | Manual |
+| Set featured | Admin sets a class as featured with position → class appears in homepage carousel | Manual |
+| Expiry | Setting a past expiry date removes class from carousel | Manual |
+| Remove featured | Admin removes featured → class disappears from carousel | Manual |
+| Audit log | Featured changes create `class_featured` / `class_unfeatured` log rows | Manual |
+
+#### Area 9: Admin Users Page
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Users list load | `/admin/users` loads and shows all profiles with role and email | Manual |
+| Create user load | `/admin/users/create` invite form loads | Manual |
+| Invite user | Admin invites by email → invitation row created or email sent | Manual |
+| Role display | Correct role labels (admin, owner, customer, staff) shown | Manual |
+
+#### Area 10: Admin Bookings / Payments Visibility
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Bookings load | `/admin/bookings` loads and shows all bookings with status and payment info | Manual |
+| Refund visibility | `refund_required` payment records are visible and labeled | Manual |
+| GMV in dashboard | Confirmed + paid bookings contribute to dashboard GMV count | Manual |
+
+#### Area 11: Admin Audit Logs
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Audit logs load | `/admin/audit-logs` loads without error | Manual |
+| Approval logged | Approving a business creates `business_approved` row with entity_id and admin_id | Manual |
+| Rejection logged | Rejecting a business creates `business_rejected` row with reason | Manual |
+| Class hide logged | Hiding a class creates `class_hidden` row | Manual |
+| Filter by action | Filtering audit logs by action type shows correct subset | Manual |
+
+#### Area 12: Admin Health Page
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Health page access | `/admin/health` loads for admin, redirects or denies for non-admin | Manual |
+| Env vars check | `Required env vars` shows ✅ green (all 3 Supabase vars set) | Manual |
+| Supabase connectivity | Supabase connectivity check shows ✅ green | Manual |
+| Storage bucket checks | Each storage bucket shows status based on whether it exists | Manual |
+| Payments disabled flag | `Payments enabled` shows ⚠ warn (expected — staging is dummy-only) | Manual |
+| Razorpay keys | Shows ⚠ warn (keys not set in staging — expected) | Manual |
+
+#### Area 13: Storage Bucket Confirmation
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Dashboard verification | `class-images`, `profile-images`, `business-logos` buckets visible in Supabase Storage dashboard | Manual — Supabase dashboard |
+| Health page confirms | Admin health page shows ✅ for all 3 buckets after they are created | Manual |
+| Class image upload | Owner can upload a class image without `Bucket not found` error | Manual |
+| Staff image upload | Staff can upload a profile image without `Bucket not found` error | Manual |
+
+#### Area 14: Legal Pages
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Privacy page | `/privacy` loads without auth, shows Privacy Policy content | Manual |
+| Terms page | `/terms` loads without auth, shows Terms and Conditions content | Manual |
+| Refund policy page | `/refund-policy` loads without auth, shows Cancellation/Refund Policy content | Manual |
+| Footer links | Public footer links to all 3 legal pages | Manual |
+| No auth required | All 3 legal pages accessible when logged out | Manual |
+
+#### Area 15: Cross-Portal Retest After Admin Approval
+
+| Test | What to verify | Type |
+| --- | --- | --- |
+| Owner unlocked | After admin approval: owner dashboard shows `active`, can publish | Manual |
+| Class published | Owner publishes draft class → class appears at `/classes` | Manual |
+| Customer books | Customer books the owner-published class | Manual |
+| Owner bookings update | Owner bookings page shows the new booking | Manual |
+| Admin analytics update | Admin dashboard GMV and booking counts update after booking | Manual |
+| Staff access | Staff who accepted invite can see their assigned classes | Manual |
+
+### Phase NF-1: Owner Portal Usability and Onboarding
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Onboarding checklist | Owner dashboard shows checklist with correct steps | Manual |
+| Checklist progress | Completing a step updates the checklist state | Manual |
+| Profile completeness score | Score reflects actual missing fields | Manual |
+| Class duplicate | Clicking Duplicate creates a new pre-filled draft | Manual |
+| Draft autosave | Partially filled class form saves state between page visits | Manual |
+| Image management | Owner can upload, preview, and remove class image | Manual |
+| Status labels | Status badges display consistently across owner and public pages | Manual |
+
+### Phase NF-2: Customer Experience Upgrade
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Favorites | Customer can save and unsave a class or business | Playwright |
+| Customer profile | Profile page shows and allows editing of customer info | Manual |
+| Booking history filters | Filters for upcoming, past, cancelled work correctly | Playwright |
+| Cancel/reschedule clarity | Policy and eligibility are clearly shown on booking history | Manual |
+| Share class link | Share button copies or opens native share for class URL | Manual |
+| Add to calendar | Google Calendar link and `.ics` download work after booking | Manual |
+| Search filters | Date, price, category, difficulty filters work on marketplace | Playwright |
+| Location filter | Location text filter or map reduces results correctly | Manual |
+| Playwright smoke tests | At least homepage, login, and booking flows have passing tests | Automated |
+
+### Phase NF-3: Staff Portal Upgrade
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Staff profile checklist | Checklist shows incomplete fields on staff profile page | Manual |
+| Staff availability | Staff can set and update availability windows | Manual |
+| Class calendar | Staff assigned classes appear on a calendar view | Manual |
+| Proposal flow | Staff can submit a class proposal for owner review | Manual |
+| Earnings view | Staff sees booking count and earnings from their classes | Manual |
+| Public profile preview | Staff can preview their public profile before enabling visibility | Manual |
+| Schedule conflict warning | Warning appears when assigned class overlaps existing schedule | Manual |
+| Profile share link | Share link generates and opens correct public profile URL | Manual |
+| Owner schedule calendar | Owner sees all staff assignments in a calendar | Manual |
+
+### Phase NF-4: Admin Operations Upgrade
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Admin user creation | Admin can invite or create a new user | Manual |
+| Reports moderation | Admin can add notes and update report status | Manual |
+| Featured placement improvement | Admin can reorder, add, and remove featured items | Manual |
+| Admin analytics charts | Charts render with correct data | Manual |
+| Audit log filters | Admin can filter audit logs by date, action, and user | Manual |
+| Payment issue dashboard | `refund_required` records are surfaced to admin | Manual |
+| Booking export | Owner can download bookings as a CSV file | Manual |
+| Customer list | Owner can view a list of customers who booked | Manual |
+| Revenue charts | Owner revenue charts show class-level breakdown | Manual |
+
+### Phase NF-5: Notifications, Reviews, and Engagement
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Notification preferences | Customer, owner, and staff can update notification preferences | Manual |
+| Email templates | Booking confirmation, invite, and alert emails are well-formatted | Manual |
+| Reviews | Customer can submit a review after attending; review appears on class detail | Manual |
+| Ratings | Average rating updates after new review | Manual |
+| Waitlist | Customer can join waitlist for a full class | Manual |
+| Waitlist notification | When a booking is cancelled, first waitlisted customer is notified | Manual |
+| Attendance check-in | Owner or staff can mark attendees as checked in | Manual |
+| Analytics events | Key events are tracked in the analytics layer | Manual |
+
+### Phase NF-6: Monetization and Business Tools
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Cancellation/refund flow | Owner can initiate a cancellation and the refund process is clear | Manual |
+| Coupon creation | Owner can create a discount code | Manual |
+| Coupon apply at booking | Customer can apply a coupon code during booking | Manual |
+| Membership purchase | Customer can buy a class pass or membership | Manual |
+| Production readiness checklist | All items in the checklist are verified or documented | Manual |
+
+### Phase NF-7: AI and Advanced Discovery
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| AI class finder | Customer receives relevant class suggestions via chat | Manual |
+| AI description helper | Owner sees AI-generated description suggestions in class form | Manual |
+| AI image helper | Owner sees image suggestions during class creation | Manual |
+| AI analytics summary | Owner sees a natural language summary of their analytics | Manual |
+| AI support chatbot | Common questions receive correct answers | Manual |
+| AI auto-tagging | Classes receive relevant tags on creation | Manual |
+| Recommended classes | Recommendations are relevant to customer's history | Manual |
+| Support/contact flow | Customer can submit a support ticket | Manual |
+
 ## Test Data Rules
 
 - Use staging-only accounts.
@@ -264,6 +499,7 @@ Suggested future test files:
 | 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | Public/customer, owner, staff; no admin portal | Completed with passes, `BUG-001` to `BUG-004`, and admin/approval blockers |
 | 2026-06-04 | Local | `npm run build` | Passed after code fixes for `BUG-001` to `BUG-004`. SQL migrations still pending manual Supabase run. |
 | 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | BUG-001 to BUG-004 retest after SQL applied | All four bugs retested and passed. Report submission works. Staff invite links staff to business. Owner staff list shows staff. Staff profile edits persist. |
+| 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | NF-0A manual admin QA — admin access, owner approval flow, cross-portal retest | Passed. Admin login → dashboard confirmed. Non-admin Access Denied confirmed. Owner approved → status active. Owner published draft class → appeared on marketplace. Customer booked published class → owner bookings updated. Rejection flow: optional, not required for NF-0A pass. |
 
 ## Mandatory Update Rule
 

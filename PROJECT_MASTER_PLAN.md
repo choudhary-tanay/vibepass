@@ -13,6 +13,8 @@ Then use these supporting docs as needed:
 - `VERCEL_STAGING_DEPLOYMENT.md`
 - `VIBEPASS_PROJECT_HANDBOOK.md`
 
+**New feature planning — 2026-06-04:** All future feature work is planned in `VIBEPASS_NEW_FEATURE_ROADMAP.md`. That file is the source of truth for new features, phase assignments (NF-0 through NF-7), priorities (P0–P3), and phase detail templates. This `PROJECT_MASTER_PLAN.md` file remains the long-range phase history and product vision for Phases 1–14. Do not add new feature planning to this file; use `VIBEPASS_NEW_FEATURE_ROADMAP.md` instead.
+
 Current staging truth:
 
 - GitHub repo: `https://github.com/choudhary-tanay/vibepass`

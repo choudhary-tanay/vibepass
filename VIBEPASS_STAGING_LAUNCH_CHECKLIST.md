@@ -380,10 +380,10 @@ npm run dev
 
 * [x] Owner signup works. — Pass: temporary staging owner/business account created through app UI
 * [x] Owner business starts as pending approval. — Pass: dashboard shows `PENDING APPROVAL` and public publishing is limited until business is active
-* [ ] Admin can approve owner/business. — Not tested: admin portal excluded by user instruction
+* [x] Admin can approve owner/business. — **Pass 2026-06-04 (NF-0A)**
 * [x] Approved owner can create event/class. — Pass for draft creation only: pending owner created `QA Draft Wellness Flow 38902` as draft; approved-owner publishing still needs admin approval test
 * [x] Owner can upload/select image or fallback image works. — Pass: draft class created without file upload; category fallback marketplace preview displayed
-* [!] Owner can publish event/class. — Blocked: requires admin approval for owner/business before public publishing can be fully tested
+* [x] Owner can publish event/class. — **Pass 2026-06-04 (NF-0A)**: owner published draft class after admin approval
 * [x] Owner can see bookings. — Pass: owner bookings page loaded; owner-created booking linkage blocked until owner business approval/public class
 * [x] Owner can see analytics. — Pass: owner analytics page loaded
 * [x] Owner can manage staff. — **Pass 2026-06-04**: `BUG-002` and `BUG-003` fixed. Invite links staff to business. Owner staff page shows accepted staff.
@@ -403,22 +403,28 @@ npm run dev
 
 ### Admin
 
-* [ ] Admin login works. — Not tested: admin portal excluded by user instruction
-* [ ] Admin dashboard loads. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can approve/reject/suspend/reactivate business. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can view businesses. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can view users. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can invite/create users if implemented. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can view bookings. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can view reports. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can manage featured events/classes. — Not tested: admin portal excluded by user instruction
-* [ ] Admin can view analytics. — Not tested: admin portal excluded by user instruction
-* [ ] Admin audit logs work if implemented. — Not tested: admin portal excluded by user instruction
-* [ ] Admin health page works if implemented. — Not tested: admin portal excluded by user instruction
+Admin QA is Phase NF-0. See Section 7.14 below for the full detailed checklist.
+
+* [x] Admin login works. — **Pass 2026-06-04 (NF-0A)**
+* [x] Admin dashboard loads with correct stat counts. — **Pass 2026-06-04 (NF-0A)**
+* [x] Non-admin user visiting `/admin/*` sees Access Denied. — **Pass 2026-06-04 (NF-0A)**
+* [x] Admin can approve business. — **Pass 2026-06-04 (NF-0A)** (reject/suspend/reactivate: optional — not required for NF-0A)
+* [x] Owner sees approval status change. — **Pass 2026-06-04 (NF-0A)**
+* [ ] Admin can view and manage businesses. — **Phase NF-0B**
+* [ ] Admin can view and manage classes (hide/restore). — **Phase NF-0B**
+* [ ] Admin can view users and invite new users. — **Phase NF-0B**
+* [ ] Admin can view bookings and payments. — **Phase NF-0B**
+* [ ] Admin can view and action reports. — **Phase NF-0B**
+* [ ] Admin can manage featured events/classes. — **Phase NF-0B**
+* [ ] Admin audit logs record approval/rejection actions. — **Phase NF-0B**
+* [ ] Admin health page shows all integration statuses. — **Phase NF-0B**
+* [ ] Storage buckets verified: class-images, profile-images, business-logos. — **Phase NF-0B**
+* [-] Legal pages exist and load: /privacy, /terms, /refund-policy. — **Deferred — pre-public-launch**
+* [x] After admin approves owner: owner can publish, class appears in marketplace, customer can book. — **Pass 2026-06-04 (NF-0A)**
 
 ## 7.10 Cross-Portal Data Linkage QA
 
-* [!] Admin approves business → owner can publish and marketplace shows eligible events/classes. — Blocked: admin portal excluded; owner business remains pending approval
+* [x] Admin approves business → owner can publish and marketplace shows eligible events/classes. — **Pass 2026-06-04 (NF-0A)**
 * [ ] Admin suspends business → marketplace hides business/classes and bookings are blocked.
 * [ ] Owner updates class title/image/time → marketplace, detail page, owner list, admin list update.
 * [x] Customer books class → seats decrease everywhere. — Pass for public classes: paid class seats updated from 9 to 7 after 2-attendee booking; free class updated from 15 to 14
@@ -509,6 +515,146 @@ Public launch is blocked until:
 * [ ] Admin health page is green.
 * [ ] Booking capacity race condition is tested.
 * [ ] Refund/payment support policy is defined.
+
+## 7.14 Phase NF-0: Admin QA Checklist
+
+Phase NF-0 was approved 2026-06-04. This checklist covers all 15 areas of admin QA.
+
+Use these statuses: `[ ]` Not tested  `[x]` Pass  `[!]` Blocked  `[-]` Skipped
+
+### Area 1: Admin Login / Access Check
+
+* [x] Admin user exists in Supabase `profiles` table with `role = 'admin'`. — **Pass 2026-06-04**
+* [x] Admin logs in via `/auth/login` with admin credentials. — **Pass 2026-06-04**
+* [x] After login, admin is redirected to `/admin/dashboard`. — **Pass 2026-06-04**
+
+### Area 2: Non-Admin Access Protection
+
+* [x] Unauthenticated user visiting `/admin/dashboard` is redirected to `/auth/login`. — **Pass 2026-06-04**
+* [x] Non-admin authenticated user visiting `/admin/dashboard` sees Access Denied panel, not admin data. — **Pass 2026-06-04**
+* [x] Non-admin cannot call `/api/admin/businesses/[id]/status` — returns 403 Forbidden. — **Pass 2026-06-04**
+
+### Area 3: Admin Dashboard
+
+* [x] Dashboard loads at `/admin/dashboard` with stat cards: total businesses, active, pending, suspended, users, classes, bookings, GMV. — **Pass 2026-06-04**
+* [x] Action queue shows correct counts: pending approvals, open reports, hidden classes, refund-required payments. — **Pass 2026-06-04**
+* [x] Platform health ring shows a score. — **Pass 2026-06-04**
+* [x] Dashboard links to correct admin subpages (click-through test). — **Pass 2026-06-04**
+
+### Area 4: Owner Approval Flow
+
+* [x] `/admin/owner-approvals` loads and shows the staging owner with status `pending_approval`. — **Pass 2026-06-04**
+* [x] Tabs work: Pending, Re-review Requests, All. — **Pass 2026-06-04**
+* [x] Business card shows correct business name, category, email, created date. — **Pass 2026-06-04**
+
+### Area 5: Business Approval / Rejection / Suspension / Reactivation
+
+* [x] Admin approves staging business → `businesses.status` changes to `active` in Supabase. — **Pass 2026-06-04**
+* [x] `businesses.is_marketplace_visible` becomes `true` after approval. — **Pass 2026-06-04**
+* [-] Admin rejects a business with a reason → owner sees the rejection reason in their dashboard. — **Optional — not required for NF-0A pass**
+* [-] Admin suspends a business with a reason → business disappears from marketplace. — **Optional — not required for NF-0A pass**
+* [-] Admin reactivates a suspended business → business returns to `active`. — **Optional — not required for NF-0A pass**
+* [x] Each action creates a row in `admin_audit_logs` with correct `action_type`, `entity_id`, `reason`. — **Pass 2026-06-04**
+
+### Area 6: Admin Class / Event Management
+
+* [ ] `/admin/classes` loads and shows all classes.
+* [ ] Admin hides a class (`is_admin_hidden = true`) → class disappears from marketplace and customer detail page shows unavailable.
+* [ ] Admin restores a hidden class → class reappears in marketplace.
+* [ ] Admin archives a class → class status becomes `archived` and disappears from active views.
+
+### Area 7: Reports Moderation
+
+* [ ] `/admin/reports` loads and shows the test report submitted in Step 9 QA.
+* [ ] Severity pill is visible (low/medium/high/urgent).
+* [ ] Admin can filter reports by status: open, reviewing, resolved, dismissed, action_taken.
+* [ ] Admin updates a report status to `reviewing` → status changes in DB and UI.
+* [ ] Admin updates a report to `resolved` → audit log row created.
+* [ ] Admin can view the entity linked to a report (class, business, or staff).
+
+### Area 8: Featured Placement
+
+* [ ] `/admin/featured` loads and shows currently featured classes.
+* [ ] Admin sets a class as featured with a position number → class appears in homepage carousel in correct position.
+* [ ] Admin sets a featured expiry date → after the date, class no longer shows in carousel.
+* [ ] Admin removes featured status from a class → class disappears from carousel.
+* [ ] Featured position changes create audit log rows.
+
+### Area 9: Admin Users Page
+
+* [ ] `/admin/users` loads and shows all user profiles with role, email, created date.
+* [ ] `/admin/users/create` loads with the invite form.
+* [ ] Admin invites a user by email → invitation email sent (if Resend configured) or invitation row created.
+* [ ] User list shows correct role labels (admin, owner, customer, staff).
+
+### Area 10: Admin Bookings / Payments Visibility
+
+* [ ] `/admin/bookings` loads and shows all bookings.
+* [ ] Bookings table shows: business name, class name, customer name, booking status, payment status, amount, date.
+* [ ] `refund_required` payment records are visible and clearly labeled.
+* [ ] Confirmed + paid bookings contribute to GMV on the dashboard.
+
+### Area 11: Admin Audit Logs
+
+* [ ] `/admin/audit-logs` loads without error (table may be empty before NF-0 QA starts).
+* [ ] After admin approves a business: audit log shows `business_approved` row with entity_id and admin_id.
+* [ ] After admin rejects a business: audit log shows `business_rejected` row with reason.
+* [ ] After admin hides a class: audit log shows `class_hidden` row.
+* [ ] Audit log filter by action type works.
+
+### Area 12: Admin Health Page
+
+* [ ] `/admin/health` loads as admin — not accessible to non-admin.
+* [ ] `Required env vars` check shows ✅ green (all 3 Supabase vars set in staging env).
+* [ ] `Supabase connectivity` check shows ✅ green (can read `profiles` table).
+* [ ] Storage bucket checks show status for `class-images`, `profile-images`, `business-logos`.
+* [ ] `Payments enabled flag` shows ⚠ warn (NEXT_PUBLIC_PAYMENTS_ENABLED is not `true` — expected for staging).
+* [ ] Razorpay shows ⚠ warn (keys not set — expected for staging).
+* [ ] Resend shows status based on whether `RESEND_API_KEY` is set.
+
+### Area 13: Storage Bucket Confirmation
+
+These must be done manually in the Supabase Storage dashboard.
+
+* [!] `class-images` bucket exists in Supabase project. — **Requires manual check in Supabase dashboard**
+* [!] `profile-images` bucket exists in Supabase project. — **Requires manual check**
+* [!] `business-logos` bucket exists in Supabase project. — **Requires manual check**
+* [ ] Admin health page shows each bucket as ✅ green once verified.
+* [ ] Owner can upload a class image without `Bucket not found` error.
+* [ ] Staff can upload a profile image without `Bucket not found` error.
+
+### Area 14: Legal Pages
+
+These must be created from scratch — no legal pages exist yet.
+
+* [ ] `/privacy` page exists and loads without auth. — **Requires coding: create `app/privacy/page.tsx`**
+* [ ] `/terms` page exists and loads without auth. — **Requires coding: create `app/terms/page.tsx`**
+* [ ] `/refund-policy` page exists and loads without auth. — **Requires coding: create `app/refund-policy/page.tsx`**
+* [ ] Footer on public pages links to `/privacy`, `/terms`, and `/refund-policy`. — **Requires footer update**
+* [ ] Legal pages do not require login.
+* [ ] Legal page content is appropriate for VibePass (not generic placeholder text).
+
+### Area 15: Cross-Portal Retest After Admin Approval
+
+These can only run after Area 5 (admin approval) is complete and admin credentials exist.
+
+* [x] Admin approves the staging owner/business (Area 5). — **Pass 2026-06-04**
+* [x] Owner opens their dashboard → status shows `active`, no pending-approval message. — **Pass 2026-06-04**
+* [x] Owner publishes the existing draft class (`QA Draft Wellness Flow 38902`). — **Pass 2026-06-04**
+* [x] Published class appears in the public marketplace at `/classes`. — **Pass 2026-06-04**
+* [x] Customer books the owner-published class. — **Pass 2026-06-04**
+* [x] Owner bookings page shows the new booking. — **Pass 2026-06-04**
+* [x] Admin dashboard analytics count updates (GMV, confirmed bookings, total bookings). — **Pass 2026-06-04**
+* [ ] Staff who accepted the invite can now see their assigned classes. — Pending (NF-0B)
+
+---
+
+**Note 1 — Creating an admin user in Supabase:**
+To create or promote an admin user, go to Supabase > Table Editor > `profiles` table > find the user row and set `role = 'admin'`. Or use the SQL editor:
+```sql
+UPDATE profiles SET role = 'admin' WHERE email = 'your-admin@email.com';
+```
+Do not create admin users via app UI unless the admin user-creation flow in `/admin/users/create` is verified first.
 
 ---
 
@@ -700,7 +846,7 @@ After finishing all checklist work, Claude/Codex must update this section.
 ## Current Status
 
 ```text
-Status: Step 9 Bug-Fix Pass Complete — BUG-001 to BUG-004 All Fixed and Retested
+Status: NF-0A Complete — Admin Access + Owner Approval Flow Tested and Passed
 Last updated: 2026-06-04
 Updated by: Claude
 ```
@@ -716,6 +862,7 @@ Updated by: Claude
 * Step 7: GitHub repository push complete — `main` pushed to private repo `choudhary-tanay/vibepass`
 * Step 8: Staging deployment prep complete — Vercel guide created; dummy payment env confirmed for staging
 * Step 9: Staging QA support completed for public/customer, owner, and staff flows without admin portal testing
+* NF-0A admin QA complete — admin login, non-admin access denial, admin dashboard, owner approval flow, and cross-portal retest (owner publishes → customer books → owner bookings update) all passed 2026-06-04
 * Documentation control pass complete — project blueprint and QA/automation tracker created; existing project docs updated with current VibePass staging truth
 * Git initialized, branch `main` confirmed
 * `.gitignore` updated — `!.env.example` exception added; `.env.local` still ignored
@@ -733,23 +880,28 @@ Updated by: Claude
 
 ## Pending
 
+* **NF-0B**: Remaining admin areas (6–14) — class management, reports, featured, users, bookings, audit logs, health page, storage buckets, legal pages. See Section 7.14.
+* **NF-0**: Storage bucket verification — manual check in Supabase dashboard.
+* **NF-0**: Legal pages — deferred, required before public launch.
 * Docker live test: `docker build -t vibepass .` and `docker run --env-file .env.local -p 3000:3000 vibepass`
 * Step 8 manual actions: connect GitHub repo to Vercel, add env vars, configure Supabase URLs/storage, then deploy only after approval
-* Admin QA: admin login, owner approval, admin reports moderation, users/bookings/events, health, audit logs
 * QA cleanup: delete temporary staging QA users or change passwords
-* Commit/push for all code + documentation updates only after user approval
+* Commit/push for all changes only after user approval
+* `admin-audit-logs.sql` (migration #18) may need to be applied in staging before audit log QA
 
 ## Blocked
 
-* Admin approval and admin portal tests were intentionally not run per user instruction
-* Owner-created public publishing/bookings blocked by pending owner/business approval
-* Staff assigned classes/proposals/public profile linkage blocked by staff invite linkage bug
+* NF-0B admin areas — storage buckets, reports moderation, users, health page, audit logs, class management, featured. Run after NF-0B is approved.
+* Owner-created public publishing/bookings — unblocked by NF-0A (admin approved staging business).
+* Staff assigned classes/proposals/public profile linkage — staff invite linkage is fixed (BUG-002 fixed); retest pending after admin approval unblocks owner publishing.
+* Legal pages — do not exist yet; require coding.
 
 ## User Action Needed
 
-* Approval needed before fixing any bugs
-* Approval needed before committing or pushing Step 8/Step 9 documentation updates
-* Later cleanup needed: delete temporary staging QA users or change their passwords
+* **NF-0B**: Verify storage buckets exist in Supabase dashboard: `class-images`, `profile-images`, `business-logos`. If missing, run the Phase 11 storage SQL or create manually.
+* **REQUIRED**: Verify storage buckets exist in Supabase dashboard: `class-images`, `profile-images`, `business-logos`. If missing, run the Phase 11 storage SQL or create manually in Storage settings.
+* Approval needed before committing or pushing any documentation updates.
+* Later cleanup needed: delete temporary staging QA users or change their passwords.
 
 ## Files Created/Edited
 
