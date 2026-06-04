@@ -6,13 +6,38 @@ This file is the onboarding and reference guide for the VibePass MVP. It is writ
 
 VibePass is a class and wellness booking marketplace. Customers discover and book classes. Business owners manage studios, staff, classes, bookings, and analytics. Staff/instructors can use a staff portal depending on their user group. Admins govern the marketplace, approvals, reports, featured placement, business status, users, and platform analytics.
 
+## Current Control Note - 4 June 2026
+
+Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+
+They contain the current file ownership map, change impact map, known bugs, blockers, and required retest matrix.
+
+Current staging state:
+
+- GitHub repo: `https://github.com/choudhary-tanay/vibepass`
+- Staging URL: `https://vibepass-staging.vercel.app/`
+- Launch type: private staging only, not public launch
+- Staging payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`
+- Razorpay: deferred; do not enable without explicit approval
+- Admin QA is still pending
+
+Current open Step 9 QA bugs:
+
+- `BUG-001`: report submission fails with a Phase 11 continuation SQL error.
+- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
+- `BUG-003`: owner staff page shows `0` staff after invite acceptance.
+- `BUG-004`: staff profile edits do not visibly persist.
+
 ## Quick Summary
 
 - Product: multi-portal class booking marketplace for wellness, fitness, events, and studio operations.
 - Brand: VibePass.
 - Framework: Next.js App Router, Next.js `16.2.7`, React `19.2.4`, TypeScript.
 - Database and auth: Supabase Auth, Supabase Postgres, Supabase Storage, RLS policies.
-- Payments: Razorpay.
+- Payments: dummy payment mode for staging; Razorpay code exists but is deferred.
 - Email: Resend.
 - Styling: Tailwind CSS v4 via PostCSS, global CSS in `app/globals.css`.
 - Main data objects: `profiles`, `businesses`, `classes`, `bookings`, `payments`, `staff`, `staff_invites`, `class_staff`, `business_staff_roles`, `staff_earnings`, `reports`, `admin_user_invites`.

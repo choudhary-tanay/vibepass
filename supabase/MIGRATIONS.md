@@ -1,5 +1,17 @@
 # VibePass — Supabase Migration Order
 
+Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+
+Current launch constraints:
+
+- Active product name: VibePass. Keep ClassVibe only where historical context is needed.
+- Launch type: private staging only, not public launch.
+- Staging payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`.
+- Admin QA is still pending.
+
 Run these SQL files in the order listed below to set up a new Supabase project from scratch.
 Each file builds on the one before it — running them out of order will cause errors.
 
@@ -16,9 +28,9 @@ Each file builds on the one before it — running them out of order will cause e
 | 5 | `phase8-payments.sql` | `payments` table and Razorpay-related columns | Yes |
 | 6 | `phase10-admin.sql` | Admin role support, `admin_user_invites`, business admin fields | Yes |
 | 7 | `phase11-improvements.sql` | `featured_*` columns on classes, `is_admin_hidden`, `increment_booked_count` RPC | Yes |
-| 8 | `phase11-admin-safety-storage.sql` | Storage bucket policies for class/profile/logo images | Yes |
+| 8 | `phase11-admin-safety-storage.sql` | Storage bucket policies, image/profile/logo fields, reports table, admin invite support, safety/admin fields | Yes |
 | 9 | `phase11-storage.sql` | Additional storage policy updates | Yes |
-| 10 | `phase12-improvements.sql` | Reports table, `reports` RLS, instructor sync improvements | Yes |
+| 10 | `phase12-improvements.sql` | Staff invites, business review fields, report/status improvements, instructor sync improvements | Yes |
 | 11 | `phase13-business-staff-features.sql` | Business descriptions, staff public profiles, marketplace improvements | Yes |
 | 12 | `staff-user-group.sql` | Adds `user_group` column to `staff` table (`instructor` / `management`) | Yes |
 | 13 | `staff-marketplace-read.sql` | Fixes public read policy for staff profiles on marketplace | Yes |
@@ -28,6 +40,21 @@ Each file builds on the one before it — running them out of order will cause e
 | 17 | `book-if-capacity.sql` | Atomic `book_if_capacity(p_class_id, p_slots)` RPC to prevent overbooking | Yes |
 | 18 | `admin-audit-logs.sql` | `admin_audit_logs` table and RLS policy | Yes (`IF NOT EXISTS`) |
 | 19 | `payment-refund-status.sql` | Extends `payments.status` to include `refund_required` | Yes (drops/re-adds constraint) |
+| 20 | `report-status-update.sql` | Extends `reports.status` to include `reviewing`, `dismissed`, and `action_taken` | Yes (drops/re-adds constraint) |
+
+---
+
+## Current Staging QA Note
+
+Step 9 staging QA found `BUG-001`: public report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
+
+Before marking reporting launch-ready, verify the staging database has the reports table, report RLS policies, and report status constraint from:
+
+- `phase11-admin-safety-storage.sql`
+- `phase12-improvements.sql`
+- `report-status-update.sql`
+
+Then retest public report creation and admin report moderation.
 
 ---
 
@@ -67,11 +94,14 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Razorpay (payments)
-RAZORPAY_KEY_ID=rzp_live_xxxx          # Use rzp_test_xxxx for test mode
+# Staging payment mode
+NEXT_PUBLIC_PAYMENTS_MODE=dummy
+NEXT_PUBLIC_PAYMENTS_ENABLED=false
+
+# Razorpay (deferred while staging uses dummy payments)
+RAZORPAY_KEY_ID=rzp_test_xxxx
 RAZORPAY_KEY_SECRET=your-secret-key
-NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_live_xxxx
-NEXT_PUBLIC_PAYMENTS_ENABLED=true      # Set to false to hide paid booking UI
+NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_test_xxxx
 
 # Resend (emails)
 RESEND_API_KEY=re_xxxxxxxxxxxx
@@ -93,7 +123,7 @@ These files exist but are utilities, not migrations:
 
 ## Idempotency Notes
 
-All migration files use `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `DROP POLICY IF EXISTS`, and similar safe patterns. They can generally be re-run without errors on an existing database. The exception is `payment-refund-status.sql`, which drops and re-adds a CHECK constraint — this is safe but will briefly lock the `payments` table (milliseconds in practice).
+All migration files use `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `DROP POLICY IF EXISTS`, and similar safe patterns. They can generally be re-run without errors on an existing database. The exceptions are `payment-refund-status.sql` and `report-status-update.sql`, which drop and re-add CHECK constraints. This is safe but will briefly lock the affected table.
 
 ---
 

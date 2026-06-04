@@ -1,4 +1,32 @@
-# ClassVibe MVP — Complete System Flow
+# VibePass MVP — Complete System Flow
+
+## Current Control Note - 4 June 2026
+
+This document contains important system-flow history. The active product name is VibePass; use ClassVibe only when referring to historical phase context. Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+
+Then read this file for system-flow context.
+
+Current truth:
+
+- Product name: VibePass.
+- Staging URL: `https://vibepass-staging.vercel.app/`.
+- Current launch type: private staging only, not public launch.
+- Payments in staging: dummy payment only, no real money.
+- Required staging env: `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`.
+- Razorpay is deferred and must not be enabled for staging without explicit approval.
+- Staff portal exists, but Step 9 QA found staff invite/profile linkage bugs.
+- Report flow exists, but Step 9 QA found report submission failing in staging.
+- Admin portal exists, but Admin QA is still pending because latest Step 9 QA intentionally skipped admin testing.
+
+Open Step 9 bugs to preserve in future work:
+
+- `BUG-001`: public report submission fails with the Phase 11 continuation SQL error.
+- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
+- `BUG-003`: owner staff page shows `0` staff after invite acceptance.
+- `BUG-004`: staff profile edits do not visibly persist.
 
 > A fitness/wellness class booking marketplace. Three portals: **Customer** (browse & book), **Owner Studio** (manage classes & staff), **Admin** (platform governance). Built on Next.js App Router + Supabase + Razorpay.
 
@@ -400,7 +428,7 @@ Visible to anyone if `publicProfileVisible: true`. Shows:
 - Published classes / featured classes
 - Total bookings / cancelled bookings
 - Total users (profiles)
-- **Platform Revenue (ClassVibe cut):** `sum(confirmed_paid_bookings.amount × business.platform_margin / 100)` — only counts `booking_status: "confirmed"` + `payment_status: "paid"`.
+- **Platform Revenue (VibePass cut):** `sum(confirmed_paid_bookings.amount × business.platform_margin / 100)` — only counts `booking_status: "confirmed"` + `payment_status: "paid"`.
 - **GMV:** raw sum of confirmed paid booking amounts (total transaction volume)
 
 **Action queue** (items needing immediate attention):
@@ -655,7 +683,7 @@ StaffStatus    = "active" | "inactive"
 | `rejection_reason`, `suspension_reason` | text | |
 | `review_requested` | boolean | |
 | `review_request_note`, `review_requested_at` | text / timestamptz | |
-| `platform_margin` | numeric | % ClassVibe takes (e.g. 15) |
+| `platform_margin` | numeric | % VibePass takes (e.g. 15) |
 
 ### Class
 

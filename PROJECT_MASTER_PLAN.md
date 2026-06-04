@@ -1,8 +1,43 @@
-# Class Booking MVP - Project Master Plan
+# VibePass Project Master Plan
+
+## Current Control Note - 4 June 2026
+
+The active product name is VibePass. Legacy names such as ClassVibe or Class Booking should appear only where historical phase context is needed. This file remains a long-range master plan and phase history, but the current required read order is:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+3. `VIBEPASS_FEATURE_INVENTORY.md`
+
+Then use these supporting docs as needed:
+- `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md`
+- `VERCEL_STAGING_DEPLOYMENT.md`
+- `VIBEPASS_PROJECT_HANDBOOK.md`
+
+Current staging truth:
+
+- GitHub repo: `https://github.com/choudhary-tanay/vibepass`
+- Staging URL: `https://vibepass-staging.vercel.app/`
+- Launch type: private staging only, not public launch
+- Payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`
+- Razorpay: code exists but real payment testing is deferred
+- Admin QA is still pending because Step 9 intentionally skipped admin testing
+
+Current PM-facing feature list:
+
+- `VIBEPASS_FEATURE_INVENTORY.md` is the current feature inventory for Product Management. It tracks portal ownership, feature status, connected routes/files/data, dependencies, QA status, bugs, blockers, and future work. Update it whenever a feature is added, changed, removed, blocked, or retested.
+
+Current open Step 9 QA bugs:
+
+- `BUG-001`: report submission fails and says the Phase 11 continuation SQL must be run.
+- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
+- `BUG-003`: owner staff page still shows `0` staff after invite acceptance.
+- `BUG-004`: staff profile edits do not visibly persist.
+
+Do not start bug fixes, commits, pushes, deployment, public launch work, or Razorpay changes without explicit user approval.
 
 ## 1. Purpose of This Document
 
-This document is the source of truth for the project.
+This document is the long-range project plan. `VIBEPASS_PROJECT_BLUEPRINT.md` is the first required read file and current operating source of truth.
 
 Claude Code and Codex must read this file before making any code changes.
 
@@ -3515,7 +3550,7 @@ Verification:
 | `/signup` | Account type chooser (Customer / Owner / Staff) |
 | `/auth/login` | Login (redirects by role) |
 | `/auth/signup` | Customer registration |
-| `/auth/change-password` | Password change (all roles, hint: admin123 default) |
+| `/auth/change-password` | Password change for all roles |
 | `/staff/invite` | Staff invite info page |
 | `/staff/invite/[token]` | Accept staff invite (register or login) |
 | `/staff/[id]` | Public staff/instructor profile |

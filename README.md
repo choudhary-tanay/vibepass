@@ -1,36 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VibePass
 
-## Getting Started
+VibePass is a Next.js class, event, wellness, and studio booking marketplace. Customers discover and book classes, owners manage businesses/classes/bookings/staff, staff use invite-based portal flows, and admins govern approvals, reports, users, featured placement, audit logs, and platform health.
 
-First, run the development server:
+Current state: private staging only.
+
+- Staging URL: `https://vibepass-staging.vercel.app/`
+- GitHub repo: `https://github.com/choudhary-tanay/vibepass`
+- Payments in staging: dummy payment only
+- Required staging payment env: `NEXT_PUBLIC_PAYMENTS_MODE=dummy`, `NEXT_PUBLIC_PAYMENTS_ENABLED=false`
+- Razorpay: code exists but real payments are deferred
+- Launch type: private staging only, not public launch
+- Admin QA is still pending
+
+## Read First
+
+Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+3. `VIBEPASS_FEATURE_INVENTORY.md`
+
+Then read:
+- `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md`
+- `VIBEPASS_PROJECT_HANDBOOK.md`
+- `VERCEL_STAGING_DEPLOYMENT.md`
+
+The blueprint contains the current bug tracker, blocker list, file ownership map, data dependency map, and retest rules.
+
+## Tech Stack
+
+- Next.js `16.2.7`
+- React `19.2.4`
+- TypeScript
+- Tailwind CSS v4
+- Supabase Auth/Postgres/Storage/RLS
+- Dummy payment mode for staging
+- Razorpay integration deferred
+- Resend optional for email
+- Vercel staging deployment
+
+## Local Commands
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm run start
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Local app URL:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```text
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment
 
-## Learn More
+Copy `.env.example` values into a local `.env.local` and replace placeholders with real local/staging values. Never commit real `.env` files.
 
-To learn more about Next.js, take a look at the following resources:
+Required staging variables:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```env
+NEXT_PUBLIC_SUPABASE_URL=<staging-supabase-url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<staging-supabase-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<staging-service-role-key>
+NEXT_PUBLIC_APP_URL=https://vibepass-staging.vercel.app
+NEXT_PUBLIC_PAYMENTS_MODE=dummy
+NEXT_PUBLIC_PAYMENTS_ENABLED=false
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Optional:
 
-## Deploy on Vercel
+```env
+RESEND_API_KEY=<optional>
+RESEND_FROM_EMAIL=<optional>
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=<optional>
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Razorpay keys are deferred for private staging and should not use live values.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Known QA Bugs
+
+- `BUG-001`: public report submission fails with a Phase 11 continuation SQL error.
+- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
+- `BUG-003`: owner staff page still shows `0` staff after invite acceptance.
+- `BUG-004`: staff profile edits do not visibly persist.
+
+See `VIBEPASS_AUTOMATION_TEST_PLAN.md` for the full pass/fail/blocked QA matrix.
+
+## Deployment
+
+Use `VERCEL_STAGING_DEPLOYMENT.md` for staging setup. Do not deploy, push, commit, enable Razorpay, or start the next launch step unless explicitly approved.

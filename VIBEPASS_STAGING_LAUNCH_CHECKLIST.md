@@ -99,7 +99,12 @@ No real money is collected in staging.
 
 ## 5. Source Documents to Read First
 
-Before working, read these files if they exist:
+Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+
+Then read these supporting files if they exist:
 
 ```text
 PROJECT_MASTER_PLAN.md
@@ -111,6 +116,19 @@ VIBEPASS_STAGING_LAUNCH_CHECKLIST.md
 ```
 
 If any file is missing, continue with the available files and mention what is missing.
+
+Current documentation control note:
+
+* `VIBEPASS_PROJECT_BLUEPRINT.md` is the current architecture, ownership, bug, blocker, and impact-map control document.
+* `VIBEPASS_AUTOMATION_TEST_PLAN.md` is the current manual QA and future automation tracking document.
+* Update both files when future work changes routes, data dependencies, bugs, blockers, deployment state, or QA results.
+
+Current launch constraints:
+
+* Active product name: VibePass. Keep ClassVibe only where historical context is needed.
+* Launch type: private staging only, not public launch.
+* Staging payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`.
+* Admin QA is still pending.
 
 ---
 
@@ -342,84 +360,126 @@ npm run dev
 
 ### Public / Customer
 
-* [ ] Homepage loads.
-* [ ] Explore/Browse page loads.
-* [ ] Public navbar is simple and correct.
-* [ ] Signup role chooser works.
-* [ ] Customer signup works.
-* [ ] Customer login works.
-* [ ] Customer can view marketplace.
-* [ ] Customer can view event/class detail.
-* [ ] Customer can book free event/class.
-* [ ] Customer can book dummy paid event/class.
-* [ ] Multi-attendee booking works if enabled.
-* [ ] Seat count updates correctly.
-* [ ] Customer booking history works.
+* [x] Homepage loads. — Pass: staging homepage loaded with VibePass marketplace content
+* [x] Explore/Browse page loads. — Pass: `/classes` loaded with live session cards
+* [x] Public navbar is simple and correct. — Pass: public nav showed Marketplace/Explore/Login/Signup before login and role-aware links after login
+* [x] Signup role chooser works. — Pass: Customer, Business / Owner, and invite-only Staff choices displayed
+* [x] Customer signup works. — Pass: temporary staging customer account created through app UI
+* [x] Customer login works. — Pass: customer login redirected to marketplace
+* [x] Customer can view marketplace. — Pass: marketplace showed 6 live sessions
+* [x] Customer can view event/class detail. — Pass: class detail loaded with instructor, host, schedule, price, and seats
+* [x] Customer can book free event/class. — Pass: free booking for `Cook with me` confirmed
+* [x] Customer can book dummy paid event/class. — Pass: dummy payment modal appeared and simulated paid booking completed
+* [x] Multi-attendee booking works if enabled. — Pass: dummy paid booking supported 2 attendees and ₹200 simulated total
+* [x] Seat count updates correctly. — Pass: paid class changed to 7 of 10 seats open; free class changed to 14 of 15 seats open
+* [x] Customer booking history works. — Pass: customer bookings page showed both test bookings
 * [ ] Customer can cancel eligible booking if supported.
-* [ ] Customer can report event/business/staff.
+* [ ] Customer can report event/business/staff. — Fail: report form opens, but submission says `Report could not be saved. Run the Phase 11 continuation SQL first.`
 
 ### Owner
 
-* [ ] Owner signup works.
-* [ ] Owner business starts as pending approval.
-* [ ] Admin can approve owner/business.
-* [ ] Approved owner can create event/class.
-* [ ] Owner can upload/select image or fallback image works.
-* [ ] Owner can publish event/class.
-* [ ] Owner can see bookings.
-* [ ] Owner can see analytics.
-* [ ] Owner can manage staff.
+* [x] Owner signup works. — Pass: temporary staging owner/business account created through app UI
+* [x] Owner business starts as pending approval. — Pass: dashboard shows `PENDING APPROVAL` and public publishing is limited until business is active
+* [ ] Admin can approve owner/business. — Not tested: admin portal excluded by user instruction
+* [x] Approved owner can create event/class. — Pass for draft creation only: pending owner created `QA Draft Wellness Flow 38902` as draft; approved-owner publishing still needs admin approval test
+* [x] Owner can upload/select image or fallback image works. — Pass: draft class created without file upload; category fallback marketplace preview displayed
+* [!] Owner can publish event/class. — Blocked: requires admin approval for owner/business before public publishing can be fully tested
+* [x] Owner can see bookings. — Pass: owner bookings page loaded; owner-created booking linkage blocked until owner business approval/public class
+* [x] Owner can see analytics. — Pass: owner analytics page loaded
+* [ ] Owner can manage staff. — Fail: owner generated invite, but accepted staff did not appear linked on owner staff page
 * [ ] Instructor proposal flow works if enabled.
-* [ ] Owner can approve instructor proposal to draft.
-* [ ] Owner can publish approved draft.
+* [!] Owner can approve instructor proposal to draft. — Blocked: staff invite linkage failed, so staff proposal approval could not be verified
+* [!] Owner can publish approved draft. — Blocked: requires admin approval and successful staff proposal linkage
 
 ### Staff
 
-* [ ] Staff invite page works.
-* [ ] Staff invite token works if configured.
-* [ ] Staff login works.
-* [ ] Staff dashboard loads.
-* [ ] Staff profile image/bio/social fields work.
-* [ ] Instructor can propose class if enabled.
+* [x] Staff invite page works. — Pass: public staff signup route is invite-only and explains staff need an owner invite link
+* [ ] Staff invite token works if configured. — Fail: invite link generated and staff account accepted, but staff portal/profile says `Not linked to a studio yet`
+* [x] Staff login works. — Pass: staff account created via invite and logged into staff dashboard
+* [x] Staff dashboard loads. — Pass: staff dashboard loaded
+* [ ] Staff profile image/bio/social fields work. — Fail: profile edit form accepted values but profile page did not show updated bio/specialty/social details; account remains not linked
+* [!] Instructor can propose class if enabled. — Blocked: proposal form loads, but submission could not be confirmed because staff account is not linked to studio
 * [ ] Management staff permissions work if enabled.
 
 ### Admin
 
-* [ ] Admin login works.
-* [ ] Admin dashboard loads.
-* [ ] Admin can approve/reject/suspend/reactivate business.
-* [ ] Admin can view businesses.
-* [ ] Admin can view users.
-* [ ] Admin can invite/create users if implemented.
-* [ ] Admin can view bookings.
-* [ ] Admin can view reports.
-* [ ] Admin can manage featured events/classes.
-* [ ] Admin can view analytics.
-* [ ] Admin audit logs work if implemented.
-* [ ] Admin health page works if implemented.
+* [ ] Admin login works. — Not tested: admin portal excluded by user instruction
+* [ ] Admin dashboard loads. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can approve/reject/suspend/reactivate business. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can view businesses. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can view users. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can invite/create users if implemented. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can view bookings. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can view reports. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can manage featured events/classes. — Not tested: admin portal excluded by user instruction
+* [ ] Admin can view analytics. — Not tested: admin portal excluded by user instruction
+* [ ] Admin audit logs work if implemented. — Not tested: admin portal excluded by user instruction
+* [ ] Admin health page works if implemented. — Not tested: admin portal excluded by user instruction
 
 ## 7.10 Cross-Portal Data Linkage QA
 
-* [ ] Admin approves business → owner can publish and marketplace shows eligible events/classes.
+* [!] Admin approves business → owner can publish and marketplace shows eligible events/classes. — Blocked: admin portal excluded; owner business remains pending approval
 * [ ] Admin suspends business → marketplace hides business/classes and bookings are blocked.
 * [ ] Owner updates class title/image/time → marketplace, detail page, owner list, admin list update.
-* [ ] Customer books class → seats decrease everywhere.
+* [x] Customer books class → seats decrease everywhere. — Pass for public classes: paid class seats updated from 9 to 7 after 2-attendee booking; free class updated from 15 to 14
 * [ ] Customer cancels booking → seats increase everywhere.
 * [ ] Owner cancels class → customer bookings show cancelled and marketplace hides class.
 * [ ] Admin features class → homepage featured section updates.
-* [ ] Staff profile image changes → owner staff page, public staff profile, class detail instructor card update.
+* [ ] Staff profile image changes → owner staff page, public staff profile, class detail instructor card update. — Fail/Blocked: staff profile changes did not persist visibly and staff account was not linked to owner studio
+
+## 7.10.1 Step 9 QA Results — 2026-06-04
+
+Staging URL tested:
+
+```text
+https://vibepass-staging.vercel.app/
+```
+
+Temporary staging QA accounts created through app UI:
+
+```text
+customer-test@vibepass.test
+owner-test@vibepass.test
+staff-test@vibepass.test
+```
+
+Passwords were not written to this file.
+
+### Step 9 Bugs Found
+
+* Fail: Report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
+* Fail: Staff invite acceptance does not link the staff account to `VibePass QA Studio`; staff dashboard/profile says `Not linked to a studio yet`.
+* Fail: Owner staff page still shows `0 active staff members` after the staff invite was accepted.
+* Fail: Staff profile edit did not visibly persist bio/specialty/social details on the profile page.
+
+### Step 9 Blocked Flows
+
+* Blocked: owner public publishing and owner-created public booking require admin approval of the owner/business.
+* Blocked: owner bookings page cannot show bookings for the new owner-created class until owner business approval allows public booking.
+* Blocked: staff assigned classes, staff proposal approval, and owner/public staff profile linkage are blocked by the staff invite linkage bug.
+* Blocked: admin approval, admin reports, admin users/bookings/events, admin health, and admin audit logs were not tested because the admin portal was explicitly excluded.
+
+### Manual/Admin Testing Needed Later
+
+* Create or promote an admin user safely in Supabase, then test admin login.
+* Approve the staging owner/business.
+* Confirm approved owner can publish a class and that it appears publicly.
+* Book the owner-created public class as customer and confirm owner bookings page updates.
+* Verify admin reports after Phase 11 report SQL is applied.
+* Re-test staff invite linkage, owner staff list, staff profile visibility, and staff proposal approval after fixing staff linkage.
+* Delete the temporary QA users or change their passwords after QA cleanup.
 
 ## 7.11 Staging Deployment
 
-* [ ] Decide staging platform: Vercel recommended.
-* [ ] Connect GitHub repo to Vercel.
-* [ ] Add environment variables to Vercel.
+* [x] Decide staging platform: Vercel recommended. — Step 8 prep confirms Vercel staging with project name `vibepass-staging`
+* [!] Connect GitHub repo to Vercel. — manual Vercel dashboard action required
+* [!] Add environment variables to Vercel. — manual Vercel dashboard action required; see `VERCEL_STAGING_DEPLOYMENT.md`
 * [ ] Deploy staging.
 * [ ] Confirm staging URL loads.
-* [ ] Confirm Supabase redirect URLs include staging domain.
+* [!] Confirm Supabase redirect URLs include staging domain. — manual Supabase dashboard action required after Vercel URL is known
 * [ ] Confirm auth works on staging.
 * [ ] Confirm dummy paid booking works on staging.
-* [ ] Confirm images/storage work on staging.
+* [!] Confirm images/storage work on staging. — storage buckets must be verified in Supabase before QA
 * [ ] Confirm admin can log in on staging.
 
 Vercel environment variables should match `.env.example` but with real staging values.
@@ -540,19 +600,19 @@ Actions:
 
 Actions:
 
-* Prepare Vercel deployment instructions.
-* List env vars needed.
-* Do not deploy unless user approves.
-* Ask user for Vercel account/project access if needed.
+* Prepare Vercel deployment instructions. — done in `VERCEL_STAGING_DEPLOYMENT.md`
+* List env vars needed. — done in `VERCEL_STAGING_DEPLOYMENT.md`
+* Do not deploy unless user approves. — no deployment performed
+* Ask user for Vercel account/project access if needed. — manual dashboard setup needed from user
 
 ## Step 9: Manual QA
 
 Actions:
 
-* Walk user through QA checklist.
-* Mark each result.
-* Document bugs.
-* Do not claim launch-ready until checklist is complete.
+* Walk user through QA checklist. — staging QA support completed for public/customer, owner, and staff flows; admin portal excluded by user instruction
+* Mark each result. — done with Pass / Fail / Blocked notes in Sections 7.9, 7.10, and 7.10.1
+* Document bugs. — done in Section 7.10.1
+* Do not claim launch-ready until checklist is complete. — not launch-ready; bugs and admin/manual blockers remain
 
 ---
 
@@ -640,7 +700,7 @@ After finishing all checklist work, Claude/Codex must update this section.
 ## Current Status
 
 ```text
-Status: Step 7 Complete — GitHub Repository Pushed
+Status: Step 9 QA Support Complete — Documentation Control Pass Complete, Bugs and Blockers Documented
 Last updated: 2026-06-04
 Updated by: Codex
 ```
@@ -654,6 +714,9 @@ Updated by: Codex
 * Step 5: Build verification passed — `npm run build` completed successfully
 * Step 6: GitHub SSH setup complete — public key added to GitHub and SSH authentication confirmed for `choudhary-tanay`
 * Step 7: GitHub repository push complete — `main` pushed to private repo `choudhary-tanay/vibepass`
+* Step 8: Staging deployment prep complete — Vercel guide created; dummy payment env confirmed for staging
+* Step 9: Staging QA support completed for public/customer, owner, and staff flows without admin portal testing
+* Documentation control pass complete — project blueprint and QA/automation tracker created; existing project docs updated with current VibePass staging truth
 * Git initialized, branch `main` confirmed
 * `.gitignore` updated — `!.env.example` exception added; `.env.local` still ignored
 * `.env.example` updated — `NEXT_PUBLIC_APP_URL=http://localhost:3000` added; all required vars present; placeholder values only
@@ -671,25 +734,37 @@ Updated by: Codex
 ## Pending
 
 * Docker live test: `docker build -t vibepass .` and `docker run --env-file .env.local -p 3000:3000 vibepass`
-* Steps 8–9: Supabase verification, Vercel staging
-* Step 9 runtime QA: free booking, dummy paid, multi-attendee, owner bookings, customer bookings, seat count
+* Step 8 manual actions: connect GitHub repo to Vercel, add env vars, configure Supabase URLs/storage, then deploy only after approval
+* Admin QA: admin login, owner approval, reports, users/bookings/events, health, audit logs
+* Bug fixes: report SQL/app failure, staff invite linkage, staff profile persistence
+* QA cleanup: delete temporary staging QA users or change passwords
+* Commit/push for documentation updates only after user approval
 
 ## Blocked
 
-* None currently
+* Admin approval and admin portal tests were intentionally not run per user instruction
+* Owner-created public publishing/bookings blocked by pending owner/business approval
+* Staff assigned classes/proposals/public profile linkage blocked by staff invite linkage bug
 
 ## User Action Needed
 
-* Approval needed before Step 8: Staging Deployment Prep
+* Approval needed before fixing any bugs
+* Approval needed before committing or pushing Step 8/Step 9 documentation updates
+* Later cleanup needed: delete temporary staging QA users or change their passwords
 
 ## Files Created/Edited
 
-* `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md` — checklist statuses updated for Steps 1–7
+* `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md` — checklist statuses updated for Steps 1–9
 * `.gitignore` — added `!.env.example` exception
 * `.env.example` — added `NEXT_PUBLIC_APP_URL=http://localhost:3000`
 * `Dockerfile` — created
 * `.dockerignore` — created
 * `start.sh` — created, chmod +x applied
+* `VERCEL_STAGING_DEPLOYMENT.md` — created with Vercel staging deployment prep
+* `VIBEPASS_PROJECT_BLUEPRINT.md` — created as the current architecture, ownership, bug, blocker, and impact-map control document
+* `VIBEPASS_AUTOMATION_TEST_PLAN.md` — created as the manual QA and future automation tracking document
+* `README.md` — updated from default Next.js template to current VibePass repo/staging guide
+* `supabase/MIGRATIONS.md` — updated with current migration map and Step 9 report-flow warning
 
 ## Commands Run
 
@@ -719,6 +794,12 @@ Updated by: Codex
 * `git branch --show-current` → confirmed `main`
 * `git commit -m "Initial VibePass staging launch commit"` → created commit `5cd9d9d`
 * `git push -u origin main` → pushed `main` and set upstream tracking
+* `sed -n '1,180p' .env.example` → read env example for staging variables
+* `sed -n ... VIBEPASS_STAGING_LAUNCH_CHECKLIST.md` → reviewed Step 8 and staging checklist sections
+* `sed -n '1,180p' next.config.ts` → confirmed no custom output directory setting
+* `rg -n "NEXT_PUBLIC_|SUPABASE_|RAZORPAY|RESEND|GOOGLE|APP_URL|PAYMENTS" ...` → checked environment variable usage
+* Official docs reviewed: Vercel Next.js/Git/env/rollback docs and Supabase redirect/storage docs
+* Browser automation against `https://vibepass-staging.vercel.app/` → tested public/customer, owner, and staff flows through app UI only
 
 ## Test Results
 
@@ -726,6 +807,8 @@ Updated by: Codex
 * Step 5 (build verification): passed — Next.js 16.2.7 production build compiled successfully, TypeScript completed, and 58 static pages generated
 * Step 6 (GitHub SSH): passed — GitHub SSH authentication confirmed for `choudhary-tanay`
 * Step 7 (GitHub push): passed — `main` pushed to `origin/main`
+* Step 8 (deployment prep): passed — deployment guide created; no deployment attempted
+* Step 9 (staging QA): completed with passes, failures, and blockers documented; no fixes attempted
 * Docker build: not yet run — Docker daemon is available when you want to test
 * `npm run build`: passed on 2026-06-04
 

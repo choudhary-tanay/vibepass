@@ -1,6 +1,32 @@
 # SYSTEM_FLOW_UPDATE_PHASE_11.md
 
-# ClassVibe Phase 11 System Flow Update
+# VibePass Phase 11 System Flow Update
+
+## Current Control Note - 4 June 2026
+
+This file is a Phase 11 design and implementation reference. The active product name is VibePass; use ClassVibe only when referring to historical phase context. Before any future code, database, deployment, QA, launch, bug-fix, commit, or push work, read these first:
+
+1. `VIBEPASS_PROJECT_BLUEPRINT.md`
+2. `VIBEPASS_AUTOMATION_TEST_PLAN.md`
+
+Current launch constraints:
+
+- Launch type: private staging only, not public launch.
+- Staging payments: dummy payment only with `NEXT_PUBLIC_PAYMENTS_MODE=dummy` and `NEXT_PUBLIC_PAYMENTS_ENABLED=false`.
+- Admin QA is still pending.
+
+Current operational tracking also lives in:
+
+- `VIBEPASS_STAGING_LAUNCH_CHECKLIST.md`
+
+Step 9 staging QA found that some Phase 11/continuation outcomes are not verified in staging:
+
+- `BUG-001`: report submission fails with `Report could not be saved. Run the Phase 11 continuation SQL first.`
+- `BUG-002`: staff invite acceptance does not link staff to the owner studio.
+- `BUG-003`: owner staff page still shows `0` staff after invite acceptance.
+- `BUG-004`: staff profile edits do not visibly persist.
+
+Before treating Phase 11 safety/reporting/storage/staff flows as launch-ready, verify the staging database has the required reports and storage SQL applied, including `supabase/phase11-admin-safety-storage.sql` and `supabase/report-status-update.sql`, and retest the failing flows.
 
 ## 1. Purpose of This Update
 
