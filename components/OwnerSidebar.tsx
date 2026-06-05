@@ -12,11 +12,11 @@ const ownerLinks = [
   { href: "/owner/classes", label: "Classes", icon: "🎟️" },
   { href: "/owner/bookings", label: "Bookings", icon: "☑" },
   { href: "/owner/customers", label: "Customers", icon: "👥" },
-  { href: "/owner/booking-forms", label: "Forms", icon: "▤" },
+  { href: "/owner/forms", label: "Forms", icon: "▤" },
   { href: "/owner/analytics", label: "Insights", icon: "◒" },
   { href: "/owner/venues", label: "Venues", icon: "⌂" },
   { href: "/owner/sponsors", label: "Sponsors", icon: "★" },
-  { href: "/owner/settings", label: "Profile", icon: "◌" },
+  { href: "/owner/profile", label: "Profile", icon: "◌" },
 ];
 
 export function OwnerSidebar() {
@@ -47,7 +47,7 @@ export function OwnerSidebar() {
             <VibePassLogo portalLabel="Owner Studio" portalColor="text-indigo-600 dark:text-indigo-300" />
           )}
         </Link>
-        <div className="flex items-center gap-2 lg:hidden">
+        <div className="flex items-center gap-2">
           <NotificationBell />
           <ThemeToggle />
         </div>
@@ -62,9 +62,15 @@ export function OwnerSidebar() {
 
       <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
         {ownerLinks.map((link) => {
+          const hrefAliases: Record<string, string[]> = {
+            "/owner/forms": ["/owner/booking-forms"],
+            "/owner/profile": ["/owner/settings"],
+          };
+          const aliases = hrefAliases[link.href] ?? [];
           const isActive =
             pathname === link.href ||
-            (link.href !== "/owner/dashboard" && pathname.startsWith(link.href));
+            (link.href !== "/owner/dashboard" && pathname.startsWith(link.href)) ||
+            aliases.some((alias) => pathname === alias || pathname.startsWith(alias));
 
           return (
             <Link
@@ -80,14 +86,13 @@ export function OwnerSidebar() {
       </nav>
 
       <div className="mt-auto hidden space-y-3 pt-6 lg:block">
-        <NotificationBell />
         <div className="rounded-[1.35rem] border border-indigo-100 bg-white/70 p-3 dark:border-slate-700 dark:bg-slate-900/70">
           <p className="px-1 text-[11px] font-black uppercase text-slate-400">
             Studio tools
           </p>
           <div className="mt-2 grid gap-1">
             <Link
-              href="/owner/users"
+              href="/owner/user-management"
               className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 dark:text-slate-300 dark:hover:bg-indigo-950/40"
             >
               User Management
@@ -99,14 +104,13 @@ export function OwnerSidebar() {
               Staff & roles
             </Link>
             <Link
-              href="/owner/approvals"
+              href="/owner/settings"
               className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 dark:text-slate-300 dark:hover:bg-indigo-950/40"
             >
-              Staff approvals
+              Business profile
             </Link>
           </div>
         </div>
-        <ThemeToggle />
         {isAdmin && (
           <Link
             href="/admin/dashboard"

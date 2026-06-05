@@ -1464,10 +1464,10 @@ export default function CreateClassPage() {
               </div>
             </Section>
 
-            {/* 9. Publishing */}
-            <Section num={9} title="Publishing"
+            {/* 10. Publishing */}
+            <Section num={10} title="Publishing"
               summary={`Status: ${form.status === "published" ? "Published" : "Draft"}${form.featureRequested ? " · Featured requested" : ""}`}
-              open={openSections.has(9)} onToggle={() => toggleSection(9)}
+              open={openSections.has(10)} onToggle={() => toggleSection(10)}
             >
               <div className="space-y-4">
                 <Field label="Status" name="status" required hint={form.status === "published" ? "Published classes are visible to customers when your business is approved." : "Draft classes are not visible to customers."}>

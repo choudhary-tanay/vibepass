@@ -82,12 +82,25 @@ interface ClassExpenseFinanceRow {
 interface ClassSponsorFinanceRow {
   sponsor_amount?: number | null;
   payment_status?: string | null;
+  sponsor_status?: string | null;
+  sponsor_refund_amount?: number | null;
+  sponsor_retained_amount?: number | null;
 }
 
 interface StaffPayoutFinanceRow {
   staff_id: string;
   class_staff_id?: string | null;
   amount?: number | null;
+}
+
+interface StaffCancellationFinanceRow {
+  staff_id: string;
+  class_staff_id?: string | null;
+  pay_type?: string | null;
+  payable_amount?: number | null;
+  paid_amount?: number | null;
+  unpaid_amount?: number | null;
+  payout_status?: string | null;
 }
 
 export interface RecalculateResult {
@@ -360,9 +373,10 @@ export async function recalculateClassFinancialSnapshot(
       "amount",
       { class_id: classId }
     ),
-    maybeRows<ClassSponsorFinanceRow>(
+    maybeRowsWithFallback<ClassSponsorFinanceRow>(
       supabase,
       "class_sponsors",
+      "sponsor_amount, payment_status, sponsor_status, sponsor_refund_amount, sponsor_retained_amount",
       "sponsor_amount, payment_status",
       { class_id: classId }
     ),
@@ -458,9 +472,24 @@ export async function recalculateClassFinancialSnapshot(
   const bookingTaxAmount = snapshotTaxAmount;
   const additionalExpenses = money(expenses.reduce((sum, expense) => sum + numberValue(expense.amount), 0));
   const sponsorIncome = money(
-    sponsors
-      .filter((sponsor) => sponsor.payment_status !== "cancelled")
-      .reduce((sum, sponsor) => sum + numberValue(sponsor.sponsor_amount), 0)
+    sponsors.reduce((sum, sponsor) => {
+      const sponsorStatus = String(sponsor.sponsor_status ?? "active").toLowerCase();
+      const paymentStatus = String(sponsor.payment_status ?? "expected").toLowerCase();
+      const retainedAmount = numberValue(sponsor.sponsor_retained_amount);
+      const originalAmount = numberValue(sponsor.sponsor_amount);
+      if (
+        paymentStatus === "cancelled" ||
+        sponsorStatus === "cancelled" ||
+        sponsorStatus === "refunded" ||
+        sponsorStatus === "refund"
+      ) {
+        return sum + retainedAmount;
+      }
+      if (sponsorStatus === "partial_refund" || sponsorStatus === "retained") {
+        return sum + (sponsor.sponsor_retained_amount == null ? originalAmount : retainedAmount);
+      }
+      return sum + originalAmount;
+    }, 0)
   );
 
   const model = calculateClassFinancialModel({
@@ -562,7 +591,9 @@ export async function recalculateClassFinancialSnapshot(
           - (bookingTaxAmount || model.taxAmount)
         ),
     profit_per_booking: model.paidBookings > 0
-      ? money((grossRevenue + sponsorIncome - platformFee - (bookingStaffCommission || model.staffCommission) - model.staffFixedCost - model.venueCost - additionalExpenses - (bookingTaxAmount || model.taxAmount)) / model.paidBookings)
+      ? classRow.status === "cancelled"
+        ? money((retainedRevenue + sponsorIncome - cancellationLoss) / model.paidBookings)
+        : money((grossRevenue + sponsorIncome - platformFee - (bookingStaffCommission || model.staffCommission) - model.staffFixedCost - model.venueCost - additionalExpenses - (bookingTaxAmount || model.taxAmount)) / model.paidBookings)
       : 0,
     break_even_bookings: model.breakEvenBookings,
     calculation_version: FINANCE_CALCULATION_VERSION,
@@ -597,6 +628,50 @@ export async function recalculateClassFinancialSnapshot(
     .then(() => {}, () => {});  // Ignore error if nf0i columns don't exist yet
 
   await supabase.from("staff_earning_snapshots").delete().eq("class_id", classId);
+
+  if (classRow.status === "cancelled") {
+    const cancellationStaffRows = await maybeRowsWithFallback<StaffCancellationFinanceRow>(
+      supabase,
+      "staff_cancellation_earnings",
+      "staff_id, class_staff_id, pay_type, payable_amount, paid_amount, unpaid_amount, payout_status",
+      "staff_id, class_staff_id, payable_amount, paid_amount, unpaid_amount, payout_status",
+      { class_id: classId }
+    );
+    const cancellationStaffSnapshots = cancellationStaffRows
+      .filter((row) => numberValue(row.payable_amount) > 0)
+      .map((row) => ({
+        class_id: classId,
+        business_id: classRow.business_id,
+        staff_id: row.staff_id,
+        class_staff_id: row.class_staff_id ?? null,
+        currency: classSnapshot.currency,
+        gross_revenue_basis: retainedRevenue,
+        commission_type: "fixed",
+        commission_value: 0,
+        earning_amount: money(numberValue(row.payable_amount)),
+        paid_amount: money(numberValue(row.paid_amount)),
+        unpaid_amount: money(numberValue(row.unpaid_amount ?? numberValue(row.payable_amount) - numberValue(row.paid_amount))),
+        payout_status: row.payout_status ?? calculatePayoutStatus(numberValue(row.payable_amount), numberValue(row.paid_amount)),
+        calculation_version: FINANCE_CALCULATION_VERSION,
+        snapshot_source: "current",
+        last_calculated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+
+    if (cancellationStaffSnapshots.length > 0) {
+      const insertStaff = await supabase.from("staff_earning_snapshots").insert(cancellationStaffSnapshots);
+      if (insertStaff.error && !isSchemaMissing(insertStaff.error)) throw insertStaff.error;
+    }
+
+    return {
+      ok: true,
+      classId,
+      businessId: classRow.business_id,
+      classSnapshot,
+      staffSnapshots: cancellationStaffSnapshots,
+    };
+  }
+
   const payoutByClassStaff = new Map<string, number>();
   const payoutByStaff = new Map<string, number>();
   for (const payout of payouts) {

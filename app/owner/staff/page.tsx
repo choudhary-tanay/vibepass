@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/appStore";
 import { supabase } from "@/lib/supabaseClient";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 import type { StaffEarningSummary } from "@/types";
+import { OwnerPageHeader } from "@/components/OwnerUI";
 
 const ROLE_LABELS: Record<string, string> = {
   instructor: "Instructor",
@@ -40,6 +41,7 @@ export default function StaffListPage() {
   const [payoutSaving, setPayoutSaving] = useState(false);
   const [payoutError, setPayoutError] = useState<string | null>(null);
   const [payoutSuccess, setPayoutSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   async function loadRevenue() {
     const response = await fetch("/api/owner/revenue").catch(() => null);
@@ -155,7 +157,19 @@ export default function StaffListPage() {
     );
   }
 
-  const businessStaff = staff.filter((s) => s.businessId === currentBusiness.id);
+  const businessStaff = Array.from(
+    staff
+      .filter((s) => s.businessId === currentBusiness.id)
+      .reduce<Map<string, (typeof staff)[number]>>((map, member) => {
+        const key = member.email?.trim().toLowerCase() || `id:${member.id}`;
+        const existing = map.get(key);
+        if (!existing || (existing.status !== "active" && member.status === "active")) {
+          map.set(key, member);
+        }
+        return map;
+      }, new Map())
+      .values()
+  );
   const activeStaff = businessStaff.filter((s) => s.status === "active");
   const inactiveStaff = businessStaff.filter((s) => s.status === "inactive");
   // "Link Shared" = active staff who have a pending (unaccepted) invite
@@ -179,16 +193,36 @@ export default function StaffListPage() {
     ).length;
   }
 
+  function earningsFor(staffId: string) {
+    return staffEarnings
+      .filter((earning) => earning.staffId === staffId)
+      .reduce(
+        (totals, earning) => ({
+          earned: totals.earned + Number(earning.staffEarning ?? 0),
+          paid: totals.paid + Number(earning.staffPaidAmount ?? 0),
+          unpaid: totals.unpaid + Number(earning.staffUnpaidBalance ?? 0),
+        }),
+        { earned: 0, paid: 0, unpaid: 0 }
+      );
+  }
+
   const TABS: { key: Tab; label: string }[] = [
     { key: "active", label: "Active" },
     { key: "inactive", label: "Not Active" },
     { key: "pending", label: "Link Shared" },
   ];
 
-  const displayStaff =
+  const tabStaff =
     tab === "active" ? activeStaff :
     tab === "inactive" ? inactiveStaff :
     pendingStaff;
+  const displayStaff = tabStaff.filter((member) => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return true;
+    return [member.name, member.email, member.phone, member.role, member.userGroup ?? ""].some((value) =>
+      value.toLowerCase().includes(needle)
+    );
+  });
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
@@ -271,27 +305,26 @@ export default function StaffListPage() {
             </form>
           </div>
         )}
-        {/* Header */}
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <Link href="/owner/dashboard" className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-              ← Dashboard
-            </Link>
-            <h1 className="text-2xl font-black text-slate-900">Staff</h1>
-            <p className="text-sm text-slate-500">{activeStaff.length} active staff member{activeStaff.length !== 1 ? "s" : ""}</p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/owner/users" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              User Management
-            </Link>
-            <Link href="/owner/staff/invite" className="rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100">
-              Invite via Link
-            </Link>
-            <Link href="/owner/staff/create" className="rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-black text-white hover:bg-indigo-700">
+        <OwnerPageHeader
+          eyebrow="Staff"
+          title="Staff"
+          description={`${activeStaff.length} active staff member${activeStaff.length !== 1 ? "s" : ""}`}
+          primaryAction={
+            <Link href="/owner/staff/create" className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700">
               + Add Staff
             </Link>
-          </div>
-        </div>
+          }
+          secondaryAction={
+            <>
+              <Link href="/owner/user-management" className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                User Management
+              </Link>
+              <Link href="/owner/staff/invite" className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100">
+                Invite via Link
+              </Link>
+            </>
+          }
+        />
 
         {/* Tabs */}
         <div className="mb-5 flex gap-1 rounded-2xl bg-slate-100 p-1">
@@ -317,6 +350,16 @@ export default function StaffListPage() {
               </span>
             </button>
           ))}
+        </div>
+
+        <div className="mb-4 rounded-2xl bg-white p-3 shadow-sm">
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search staff by name, email, phone, or role..."
+            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-400"
+          />
         </div>
 
         {/* Tab: Link Shared — banner */}
@@ -353,77 +396,89 @@ export default function StaffListPage() {
 
         {/* Staff table */}
         {displayStaff.length > 0 && (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left">
-                  <th className="px-5 py-3.5 font-semibold text-slate-500">Name</th>
-                  <th className="px-5 py-3.5 font-semibold text-slate-500">Group</th>
-                  <th className="px-5 py-3.5 font-semibold text-slate-500">Role</th>
-                  <th className="px-5 py-3.5 font-semibold text-slate-500">Contact</th>
-                  {tab === "active" && (
-                    <th className="px-5 py-3.5 font-semibold text-slate-500">Classes</th>
-                  )}
-                  {tab === "pending" && (
-                    <th className="px-5 py-3.5 font-semibold text-slate-500">Invite Link</th>
-                  )}
-                  <th className="px-5 py-3.5"></th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Name</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Email</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Role/group</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Assigned classes</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Earnings</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Paid</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Unpaid</th>
+                  <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-black uppercase text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {displayStaff.map((member) => (
-                  <tr key={member.id} className={`hover:bg-slate-50 ${tab === "inactive" ? "opacity-60" : ""}`}>
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-900">{member.name}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`rounded-full px-3 py-1 text-xs font-black capitalize ${
-                        member.userGroup === "management"
-                          ? "bg-indigo-100 text-indigo-700"
-                          : "bg-teal-100 text-teal-700"
-                      }`}>
-                        {member.userGroup ?? "instructor"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">{ROLE_LABELS[member.role] ?? member.role}</td>
-                    <td className="px-5 py-4 text-slate-500">{member.email || member.phone || "—"}</td>
-
-                    {tab === "active" && (
-                      <td className="px-5 py-4 text-slate-600">{futureClassCount(member.id)}</td>
-                    )}
-
-                    {tab === "pending" && member.email && (
-                      <td className="px-5 py-4">
-                        {pendingInvites[member.email.toLowerCase()] ? (
-                          <button
-                            onClick={() => copyInvite(member.email)}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${
-                              copiedEmail === member.email
-                                ? "bg-green-500 text-white"
-                                : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                            }`}
-                          >
-                            {copiedEmail === member.email ? "Copied!" : "Copy link"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => generateInvite(member.email, member.role)}
-                            disabled={generatingFor === member.email}
-                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200 disabled:opacity-50"
-                          >
-                            {generatingFor === member.email ? "Generating…" : "Get new link"}
-                          </button>
-                        )}
+                {displayStaff.map((member) => {
+                  const totals = earningsFor(member.id);
+                  const isPending = member.email && pendingEmails.has(member.email.toLowerCase());
+                  return (
+                    <tr key={member.id} className={`hover:bg-slate-50 ${tab === "inactive" ? "opacity-60" : ""}`}>
+                      <td className="px-4 py-3">
+                        <p className="font-black text-slate-900">{member.name || "Unknown staff"}</p>
+                        <p className="text-xs text-slate-400">{member.phone || "No phone"}</p>
                       </td>
-                    )}
-
-                    <td className="px-5 py-4 text-right">
-                      <Link href={`/owner/staff/${member.id}`} className="text-indigo-600 hover:underline text-xs font-semibold">
-                        View
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-4 py-3 text-slate-600">{member.email || "No email"}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-slate-700">{ROLE_LABELS[member.role] ?? member.role}</p>
+                        <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-[11px] font-black capitalize ${
+                          member.userGroup === "management"
+                            ? "bg-indigo-100 text-indigo-700"
+                            : "bg-teal-100 text-teal-700"
+                        }`}>
+                          {member.userGroup ?? "instructor"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-600">{futureClassCount(member.id)}</td>
+                      <td className="px-4 py-3 font-bold text-slate-800">{formatCurrency(totals.earned, bizCurrency)}</td>
+                      <td className="px-4 py-3 text-slate-600">{totals.paid ? formatCurrency(totals.paid, bizCurrency) : "—"}</td>
+                      <td className="px-4 py-3 font-bold text-slate-800">{totals.unpaid ? formatCurrency(totals.unpaid, bizCurrency) : "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-black capitalize ${
+                          tab === "pending" || isPending
+                            ? "bg-amber-100 text-amber-700"
+                            : member.status === "active"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {tab === "pending" || isPending ? "invited" : member.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Link href={`/owner/staff/${member.id}`} className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100">
+                            View
+                          </Link>
+                          {member.email && tab === "pending" && (
+                            pendingInvites[member.email.toLowerCase()] ? (
+                              <button
+                                onClick={() => copyInvite(member.email)}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${
+                                  copiedEmail === member.email
+                                    ? "bg-green-500 text-white"
+                                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                }`}
+                              >
+                                {copiedEmail === member.email ? "Copied" : "Copy link"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => generateInvite(member.email, member.role)}
+                                disabled={generatingFor === member.email}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                {generatingFor === member.email ? "Generating..." : "Get link"}
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

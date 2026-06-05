@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
-import { AvatarBadge, MetricRibbon, RingGauge, TrendLine, WaveBars } from "@/components/PortalCharts";
+import { MetricRibbon, RingGauge, TrendLine } from "@/components/PortalCharts";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 
@@ -89,6 +89,7 @@ export default function OwnerDashboardPage() {
     const trendPoints = ownerClasses.slice(-6).map((cls) => Math.max(0, confirmedCountByClass[cls.id] ?? 0));
     // Seats to sell = capacity minus confirmed bookings (from snapshot, with bookedCount fallback)
     const classBars = upcomingClasses.slice(0, 6).map((cls) => ({
+      id: cls.id,
       label: cls.title,
       value: Math.max(0, cls.capacity - (confirmedCountByClass[cls.id] ?? 0)),
     }));
@@ -104,6 +105,9 @@ export default function OwnerDashboardPage() {
       const bookingCount = confirmedBookings.filter((booking) => assignedClassIds.has(booking.classId)).length;
       return { member, bookingCount };
     }).sort((a, b) => b.bookingCount - a.bookingCount);
+    const recentBookings = [...ownerBookings]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 5);
 
     return {
       ownerClasses,
@@ -114,10 +118,11 @@ export default function OwnerDashboardPage() {
       upcomingClasses,
       activeStaff,
       avgOccupancy,
-      trendPoints: trendPoints.length > 0 ? trendPoints : [0, 1, 2, 1, 3, 4],
+      trendPoints,
       classBars,
       staffDrivers,
       confirmedCountByClass,
+      recentBookings,
     };
   }, [bookings, classes, currentBusiness, financeDashboard, staff]);
 
@@ -175,34 +180,6 @@ export default function OwnerDashboardPage() {
   return (
     <main className="min-h-screen px-4 py-7 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-7xl">
-        <OnboardingChecklist
-          storageKey="vibepass_owner_onboarding_dismissed"
-          title="Set up your studio"
-          description="Complete these steps to go live on the VibePass marketplace."
-          steps={[
-            { label: "Account created", done: true },
-            {
-              label: "Add your business logo and description",
-              done: hasLogo && hasDescription,
-              href: "/owner/settings",
-            },
-            {
-              label: "Create your first session",
-              done: hasAnyClass,
-              href: "/owner/classes/create",
-            },
-            {
-              label: "Publish your first session",
-              done: hasPublishedClass,
-              href: "/owner/classes",
-            },
-            {
-              label: "Invite a staff member (optional)",
-              done: hasStaff,
-              href: "/owner/staff",
-            },
-          ]}
-        />
         {currentBusiness.status !== "active" && (
           <div className="mb-5 visual-panel rounded-[1.75rem] p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -237,7 +214,7 @@ export default function OwnerDashboardPage() {
                     Owner Studio
                   </span>
                 </div>
-                <h1 className="mt-5 max-w-3xl text-4xl font-black leading-tight text-slate-950 dark:text-white sm:text-6xl">
+                <h1 className="mt-5 max-w-3xl text-3xl font-black leading-tight text-slate-950 dark:text-white sm:text-5xl">
                   {currentBusiness.businessName}
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm font-semibold leading-7 text-slate-500 dark:text-slate-300">
@@ -271,10 +248,10 @@ export default function OwnerDashboardPage() {
                 tone="teal"
               />
               <MetricRibbon
-                label="Owner net"
-                value={formatCurrency(revTotals?.totalOwnerNet ?? 0, bizCurrency)}
-                detail="after fees + staff"
-                tone={(revTotals?.totalOwnerNet ?? 0) < 0 ? "rose" : "amber"}
+                label="Outstanding"
+                value={formatCurrency(revTotals?.totalStaffUnpaid ?? 0, bizCurrency)}
+                detail="staff payables"
+                tone={(revTotals?.totalStaffUnpaid ?? 0) > 0 ? "rose" : "emerald"}
               />
             </div>
           </div>
@@ -299,10 +276,10 @@ export default function OwnerDashboardPage() {
               <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">
-                    Earnings split
+                    Earnings overview
                   </p>
                   <h2 className="text-2xl font-black text-slate-950 dark:text-white">
-                    Gross, fees, commissions, and payables
+                    Gross revenue, fees, staff payouts, and owner net
                   </h2>
                 </div>
                 <Link href="/owner/staff" className="text-sm font-black text-blue-600 hover:text-blue-700">
@@ -326,69 +303,117 @@ export default function OwnerDashboardPage() {
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300">
-                  Seats to sell
+                  Upcoming classes
                 </p>
                 <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">
-                  Upcoming class capacity
+                  Sessions coming next
                 </h2>
               </div>
               <Link href="/owner/classes" className="text-sm font-black text-blue-600 hover:text-blue-700">
-                Manage
+                View all
               </Link>
             </div>
-            <WaveBars items={data.classBars} tone="indigo" />
+            {data.upcomingClasses.length === 0 ? (
+              <p className="rounded-[1.5rem] bg-white/70 p-6 text-sm font-semibold text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">
+                No upcoming published classes yet.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {data.upcomingClasses.slice(0, 4).map((cls) => {
+                  const confirmed = data.confirmedCountByClass[cls.id] ?? cls.bookedCount;
+                  const seatsLeft = Math.max(0, cls.capacity - confirmed);
+                  return (
+                    <Link
+                      key={cls.id}
+                      href={`/owner/classes/${cls.id}/edit`}
+                      className="grid gap-2 rounded-[1.25rem] bg-white/75 p-4 hover:-translate-y-0.5 hover:bg-white dark:bg-slate-950/40 dark:hover:bg-slate-900 sm:grid-cols-[1fr_auto] sm:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-black text-slate-950 dark:text-white">{cls.title}</p>
+                        <p className="mt-1 truncate text-sm font-semibold text-slate-500 dark:text-slate-400">
+                          {formatDate(cls.date)} · {formatTime(cls.startTime)} · {cls.location}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-black text-slate-950 dark:text-white">{confirmed} / {cls.capacity}</p>
+                        <p className="text-xs font-bold text-emerald-600">{seatsLeft} seats left</p>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300">
-                  Staff drivers
+                  Quick insights
                 </p>
                 <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">
-                  Who is moving bookings
+                  Studio health
                 </h2>
               </div>
-              <Link href="/owner/staff" className="text-sm font-black text-blue-600 hover:text-blue-700">
-                Staff
+              <Link href="/owner/analytics" className="text-sm font-black text-blue-600 hover:text-blue-700">
+                Insights
               </Link>
             </div>
-            {data.staffDrivers.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-slate-200 p-8 text-center dark:border-slate-700">
-                <p className="text-lg font-black text-slate-700 dark:text-slate-200">
-                  Add staff to power class cards.
-                </p>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Instructor profiles make marketplace listings feel more trustworthy.
-                </p>
-                <Link href="/owner/staff/create" className="mt-5 inline-flex rounded-full bg-indigo-600 px-5 py-3 text-sm font-black text-white">
-                  Add staff
-                </Link>
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {data.staffDrivers.slice(0, 5).map(({ member, bookingCount }) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center justify-between gap-3 rounded-[1.35rem] bg-white/70 p-3 dark:bg-slate-950/40"
-                  >
-                    <AvatarBadge
-                      name={member.name}
-                      role={member.role}
-                      imageUrl={member.imageUrl}
-                      tone="indigo"
-                    />
-                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-200">
-                      {bookingCount} bookings
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MetricRibbon label="Occupancy" value={`${data.avgOccupancy}%`} detail="average across classes" tone="teal" />
+              <MetricRibbon label="Confirmed" value={data.confirmedBookings.length} detail="current bookings" tone="indigo" />
+              <MetricRibbon label="Cancelled" value={data.cancelledBookings.length} detail="bookings to review" tone={data.cancelledBookings.length > 0 ? "rose" : "slate"} />
+              <MetricRibbon label="Active staff" value={data.activeStaff.length} detail="assigned team" tone="emerald" />
+            </div>
           </div>
         </section>
 
         <section className="mt-6 grid gap-5 lg:grid-cols-2">
+          <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-2xl font-black text-slate-950 dark:text-white">
+                Recent bookings
+              </h2>
+              <Link href="/owner/bookings" className="text-sm font-black text-blue-600 hover:text-blue-700">
+                View all
+              </Link>
+            </div>
+            {data.recentBookings.length === 0 ? (
+              <p className="rounded-[1.5rem] bg-white/70 p-6 text-sm font-semibold text-slate-500 dark:bg-slate-950/40 dark:text-slate-400">
+                Bookings will appear here as customers reserve seats.
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {data.recentBookings.map((booking) => {
+                  const cls = data.ownerClasses.find((item) => item.id === booking.classId);
+                  return (
+                    <Link
+                      key={booking.id}
+                      href="/owner/bookings"
+                      className="grid gap-2 rounded-[1.35rem] bg-white/75 p-4 hover:-translate-y-0.5 hover:bg-white dark:bg-slate-950/40 dark:hover:bg-slate-900 sm:grid-cols-[1fr_auto] sm:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-black text-slate-950 dark:text-white">
+                          {booking.customerName || booking.customerEmail || "Customer"}
+                        </p>
+                        <p className="mt-1 truncate text-sm font-semibold text-slate-500 dark:text-slate-400">
+                          {cls?.title ?? "Class"} · {new Date(booking.createdAt).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </p>
+                      </div>
+                      <span className="font-black text-slate-950 dark:text-white">
+                        {formatCurrency(booking.amount, cls?.currency ?? bizCurrency)}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-2xl font-black text-slate-950 dark:text-white">
@@ -430,31 +455,54 @@ export default function OwnerDashboardPage() {
             )}
           </div>
 
-          <div className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl">
-            <p className="text-sm font-black uppercase text-indigo-200">
-              Quick workspace
-            </p>
-            <h2 className="mt-2 text-3xl font-black">Less sidebar, more flow.</h2>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {[
-                ["/owner/classes/create", "Create a visual class", "Pick category, image, staff, schedule."],
-                ["/owner/staff", "Tune staff profiles", "Staff identity powers trust."],
-                ["/owner/analytics", "Open insights", "Switch graphs by question."],
-                ["/owner/settings", "Update studio profile", "Control marketplace presence."],
-              ].map(([href, title, text]) => (
-                <Link key={href} href={href} className="rounded-[1.35rem] bg-white/10 p-4 hover:bg-white/15">
-                  <p className="font-black">{title}</p>
-                  <p className="mt-1 text-sm text-slate-300">{text}</p>
-                </Link>
-              ))}
+          <div className="visual-panel rounded-[2rem] p-5 sm:p-6 lg:col-span-2">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-2xl font-black text-slate-950 dark:text-white">
+                Quick insights
+              </h2>
+              <Link href="/owner/analytics" className="text-sm font-black text-blue-600 hover:text-blue-700">
+                Go to insights
+              </Link>
             </div>
-            {data.cancelledBookings.length > 0 && (
-              <p className="mt-5 rounded-[1.25rem] bg-rose-500/15 p-4 text-sm font-semibold text-rose-100">
-                {data.cancelledBookings.length} cancelled booking{data.cancelledBookings.length !== 1 ? "s" : ""} detected. Review class timing, policies, or reminders.
-              </p>
-            )}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricRibbon label="Occupancy Rate" value={`${data.avgOccupancy}%`} detail="average across classes" tone="teal" />
+              <MetricRibbon label="Active Staff" value={data.activeStaff.length} detail="available instructors" tone="indigo" />
+              <MetricRibbon label="Cancelled Bookings" value={data.cancelledBookings.length} detail="needs policy review" tone={data.cancelledBookings.length > 0 ? "rose" : "slate"} />
+              <MetricRibbon label="Marketplace Classes" value={data.publishedClasses.length} detail="published sessions" tone="emerald" />
+            </div>
           </div>
         </section>
+
+        <div className="mt-6">
+          <OnboardingChecklist
+            storageKey="vibepass_owner_onboarding_dismissed"
+            title="Set up your studio"
+            description="Complete these steps to go live on the VibePass marketplace."
+            steps={[
+              { label: "Account created", done: true },
+              {
+                label: "Add your business logo and description",
+                done: hasLogo && hasDescription,
+                href: "/owner/profile",
+              },
+              {
+                label: "Create your first session",
+                done: hasAnyClass,
+                href: "/owner/classes/create",
+              },
+              {
+                label: "Publish your first session",
+                done: hasPublishedClass,
+                href: "/owner/classes",
+              },
+              {
+                label: "Invite a staff member",
+                done: hasStaff,
+                href: "/owner/staff",
+              },
+            ]}
+          />
+        </div>
       </div>
     </main>
   );

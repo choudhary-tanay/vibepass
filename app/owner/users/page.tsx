@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
+import { OwnerPageHeader, OwnerStatusChip } from "@/components/OwnerUI";
 import type {
   BusinessAccessLevel,
   BusinessRole,
@@ -41,7 +42,7 @@ const ACCESS_LEVELS: { value: BusinessAccessLevel; label: string }[] = [
 ];
 
 export default function OwnerUsersPage() {
-  const { currentBusiness, loading } = useAppStore();
+  const { currentBusiness, loading, classes } = useAppStore();
   const [payload, setPayload] = useState<AccessPayload | null>(null);
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [error, setError] = useState("");
@@ -62,6 +63,7 @@ export default function OwnerUsersPage() {
     permissions: [],
   });
   const [edits, setEdits] = useState<Record<string, { roleId: string; accessLevel: BusinessAccessLevel; status: "active" | "inactive" }>>({});
+  const [userSearch, setUserSearch] = useState("");
 
   async function loadAccess() {
     if (!currentBusiness) return;
@@ -116,6 +118,37 @@ export default function OwnerUsersPage() {
   }, [payload?.permissions]);
 
   const activeRoles = (payload?.roles ?? []).filter((role) => role.status === "active");
+  const filteredUsers = (payload?.users ?? []).filter((user) => {
+    const needle = userSearch.trim().toLowerCase();
+    if (!needle) return true;
+    return [
+      user.fullName ?? "",
+      user.email,
+      user.phone ?? "",
+      user.businessRoleName ?? "",
+      user.accessLevel,
+      user.status,
+    ].some((value) => value.toLowerCase().includes(needle));
+  });
+
+  function assignedClassCount(user: BusinessUser) {
+    if (!user.staffId) return 0;
+    return classes.filter(
+      (cls) =>
+        cls.businessId === currentBusiness?.id &&
+        (cls.staffId === user.staffId || cls.staffIds?.includes(user.staffId ?? ""))
+    ).length;
+  }
+
+  function formatLastActive(user: BusinessUser) {
+    const value = user.acceptedAt ?? user.invitedAt ?? user.createdAt;
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
 
   function toggleRolePermission(key: string) {
     setRoleForm((prev) => ({
@@ -229,21 +262,23 @@ export default function OwnerUsersPage() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <Link href="/owner/staff" className="text-sm text-slate-500 hover:text-slate-700">
-              Back to staff
+        <OwnerPageHeader
+          backHref="/owner/staff"
+          backLabel="Staff"
+          eyebrow="Access"
+          title="User Management"
+          description={`${currentBusiness.businessName} business users, roles, and access levels.`}
+          primaryAction={
+            <a href="#invite-user" className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700">
+              + Invite User
+            </a>
+          }
+          secondaryAction={
+            <Link href="/owner/staff/create" className="rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
+              + Add Staff
             </Link>
-            <h1 className="mt-2 text-2xl font-black text-slate-950">User Management</h1>
-            <p className="mt-1 text-sm text-slate-500">{currentBusiness.businessName}</p>
-          </div>
-          <Link
-            href="/owner/staff"
-            className="rounded-full border border-indigo-200 bg-white px-5 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
-          >
-            Staff roster
-          </Link>
-        </div>
+          }
+        />
 
         {error && (
           <div className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-semibold text-red-600">
@@ -273,31 +308,46 @@ export default function OwnerUsersPage() {
               <div>
                 <h2 className="text-lg font-black text-slate-950">Business users</h2>
                 <p className="text-xs font-semibold text-slate-400">
-                  {(payload?.users ?? []).length} active or invited records
+                  {filteredUsers.length} of {(payload?.users ?? []).length} active or invited records
                 </p>
               </div>
             </div>
+            <input
+              value={userSearch}
+              onChange={(event) => setUserSearch(event.target.value)}
+              placeholder="Search by name, email, phone, role, or status..."
+              className="mb-4 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-indigo-400"
+            />
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
+              <table className="w-full min-w-[1040px] text-sm">
                 <thead className="border-b border-slate-100 text-left text-xs font-black uppercase text-slate-400">
                   <tr>
-                    <th className="px-3 py-3">User</th>
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Email</th>
+                    <th className="px-3 py-3">Phone</th>
                     <th className="px-3 py-3">Role</th>
                     <th className="px-3 py-3">Level</th>
                     <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3">Classes assigned</th>
+                    <th className="px-3 py-3">Last active</th>
                     <th className="px-3 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {(payload?.users ?? []).map((user) => {
+                  {filteredUsers.map((user) => {
                     const edit = edits[user.id];
                     const isOwner = user.accessLevel === "owner";
                     return (
                       <tr key={user.id} className="align-top">
                         <td className="px-3 py-4">
                           <p className="font-black text-slate-900">{user.fullName || user.email}</p>
-                          <p className="text-xs text-slate-400">{user.email}</p>
+                        </td>
+                        <td className="px-3 py-4 text-xs font-semibold text-slate-500">
+                          {user.email}
+                        </td>
+                        <td className="px-3 py-4 text-slate-600">
+                          {user.phone || "—"}
                         </td>
                         <td className="px-3 py-4">
                           <select
@@ -344,30 +394,36 @@ export default function OwnerUsersPage() {
                           </select>
                         </td>
                         <td className="px-3 py-4">
-                          <select
-                            value={edit?.status ?? "active"}
-                            disabled={isOwner}
-                            onChange={(event) =>
-                              setEdits((prev) => ({
-                                ...prev,
-                                [user.id]: {
-                                  ...prev[user.id],
-                                  status: event.target.value as "active" | "inactive",
-                                },
-                              }))
-                            }
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                          >
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                          </select>
+                          <div className="grid gap-2">
+                            <OwnerStatusChip status={user.status} />
+                            {!isOwner && (
+                              <select
+                                value={edit?.status ?? "active"}
+                                onChange={(event) =>
+                                  setEdits((prev) => ({
+                                    ...prev,
+                                    [user.id]: {
+                                      ...prev[user.id],
+                                      status: event.target.value as "active" | "inactive",
+                                    },
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none"
+                              >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                              </select>
+                            )}
+                          </div>
                         </td>
+                        <td className="px-3 py-4 text-slate-600">{assignedClassCount(user)}</td>
+                        <td className="px-3 py-4 text-slate-600">{formatLastActive(user)}</td>
                         <td className="px-3 py-4 text-right">
                           <button
                             type="button"
                             disabled={saving || isOwner}
                             onClick={() => saveUser(user)}
-                            className="rounded-full bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:opacity-40"
+                            className="rounded-lg bg-slate-950 px-4 py-2 text-xs font-black text-white hover:bg-slate-800 disabled:opacity-40"
                           >
                             Save
                           </button>
@@ -385,7 +441,7 @@ export default function OwnerUsersPage() {
           </section>
 
           <div className="grid gap-6">
-            <section className="rounded-2xl bg-white p-5 shadow-sm">
+            <section id="invite-user" className="rounded-2xl bg-white p-5 shadow-sm">
               <h2 className="text-lg font-black text-slate-950">Invite user</h2>
               <form onSubmit={submitInvite} className="mt-4 grid gap-4">
                 <input

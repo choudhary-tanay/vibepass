@@ -1,12 +1,125 @@
 "use client";
 
 import Link from "next/link";
+import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime } from "@/lib/utils";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
+
+type CancellationRefundMode =
+  | "apply_rules"
+  | "full_refund"
+  | "no_refund"
+  | "manual_review"
+  | "custom_percent";
+
+type CancellationCostType =
+  | "venue"
+  | "staff_commission"
+  | "staff_fixed"
+  | "expense"
+  | "sponsor_refund"
+  | "tax"
+  | "custom";
+
+type CancellationCostAction =
+  | "full"
+  | "zero"
+  | "custom"
+  | "already_paid"
+  | "waived"
+  | "refund"
+  | "retained";
+
+interface CancellationCostLine {
+  costType: CancellationCostType;
+  relatedEntityId?: string | null;
+  label: string;
+  originalAmount: number;
+  payableAmount: number;
+  currency?: string;
+  action?: CancellationCostAction;
+  note?: string;
+}
+
+interface CancellationStaffLine {
+  staffId: string;
+  classStaffId?: string | null;
+  label: string;
+  commissionType?: string;
+  commissionValue?: number;
+  commissionAmount?: number;
+  fixedAmount?: number;
+  originalAmount: number;
+  payableAmount: number;
+  payType?: "no_pay" | "full_commission" | "fixed_fee" | "custom_amount";
+  note?: string;
+}
+
+interface CancellationSponsorLine {
+  classSponsorId: string;
+  sponsorId?: string | null;
+  label: string;
+  originalAmount: number;
+  retainedAmount: number;
+  refundAmount: number;
+  action: "retained" | "refund" | "partial_refund" | "cancelled";
+  note?: string;
+}
+
+interface CancellationPreview {
+  class: {
+    id: string;
+    title: string;
+    date?: string | null;
+    startTime?: string | null;
+    currency?: string | null;
+  };
+  financialSummary: {
+    grossBookingRevenue: number;
+    paidBookingsCount: number;
+    totalPaidAmount: number;
+    customerRefundEstimate: number;
+    refundRuleApplied?: string | null;
+    refundMode: "dummy";
+    platformFee: number;
+    staffCommission: number;
+    staffFixedCost: number;
+    venueCost: number;
+    additionalExpenses: number;
+    sponsorIncome: number;
+    tax: number;
+    currentEstimatedNetProfit: number;
+    estimatedCancellationResult: number;
+  };
+  refundRules: Array<Record<string, unknown>>;
+  costLines: CancellationCostLine[];
+  staffLines: CancellationStaffLine[];
+  sponsorLines: CancellationSponsorLine[];
+}
+
+interface CancellationSubmitPayload {
+  cancellationReason: string;
+  internalNote: string;
+  notifyCustomers: boolean;
+  customerRefundMode: CancellationRefundMode;
+  customRefundPercent?: number;
+  cancellationCosts: CancellationCostLine[];
+  staffDecisions: Array<{
+    staffId: string;
+    classStaffId?: string | null;
+    staffName?: string;
+    payStaff: boolean;
+    payType: "no_pay" | "full_commission" | "fixed_fee" | "custom_amount";
+    originalAmount: number;
+    payableAmount: number;
+    note?: string;
+  }>;
+  sponsorDecisions: CancellationSponsorLine[];
+}
 
 function DeleteModal({
   className,
@@ -56,101 +169,479 @@ function CancelClassModal({
   loading,
 }: {
   cls: { id: string; title: string; price: number };
-  onConfirm: (payload: {
-    cancellationReason: string;
-    internalNote: string;
-    notifyCustomers: boolean;
-    customerRefundMode: "full_refund" | "no_refund" | "manual_review";
-    payVenueCost: boolean;
-    venueCostAmount: string;
-  }) => void;
+  onConfirm: (payload: CancellationSubmitPayload) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [notifyCustomers, setNotifyCustomers] = useState(true);
-  const [refundMode, setRefundMode] = useState<"full_refund" | "no_refund" | "manual_review">("full_refund");
-  const [payVenueCost, setPayVenueCost] = useState(false);
-  const [venueCostAmount, setVenueCostAmount] = useState("");
+  const [refundMode, setRefundMode] = useState<CancellationRefundMode>("full_refund");
+  const [customRefundPercent, setCustomRefundPercent] = useState(50);
+  const [step, setStep] = useState(0);
+  const [preview, setPreview] = useState<CancellationPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const [costLines, setCostLines] = useState<CancellationCostLine[]>([]);
+  const [staffLines, setStaffLines] = useState<CancellationStaffLine[]>([]);
+  const [sponsorLines, setSponsorLines] = useState<CancellationSponsorLine[]>([]);
+
+  const steps = ["Reason", "Refunds", "Costs", "Review"];
+  const currency = preview?.class.currency || "INR";
+  const totalPaidAmount = moneyValue(preview?.financialSummary.totalPaidAmount);
+  const refundTotal = refundAmountForMode(totalPaidAmount, refundMode, customRefundPercent, moneyValue(preview?.financialSummary.customerRefundEstimate));
+  const retainedRevenue = refundMode === "manual_review" ? 0 : roundMoney(totalPaidAmount - refundTotal);
+  const staffPayableTotal = roundMoney(staffLines.reduce((sum, line) => sum + moneyValue(line.payableAmount), 0));
+  const venuePayableTotal = sumCostLines(costLines, "venue");
+  const expensesPayableTotal = sumCostLines(costLines, "expense");
+  const taxPayableTotal = sumCostLines(costLines, "tax");
+  const customPayableTotal = sumCostLines(costLines, "custom");
+  const sponsorRetainedTotal = roundMoney(sponsorLines.reduce((sum, line) => sum + moneyValue(line.retainedAmount), 0));
+  const sponsorRefundTotal = roundMoney(sponsorLines.reduce((sum, line) => sum + moneyValue(line.refundAmount), 0));
+  const cancellationLossTotal = roundMoney(
+    staffPayableTotal +
+      costLines.reduce((sum, line) => sum + moneyValue(line.payableAmount), 0) +
+      sponsorRefundTotal
+  );
+  const finalNetImpact = roundMoney(retainedRevenue + sponsorRetainedTotal - cancellationLossTotal);
+
+  useEffect(() => {
+    let ignore = false;
+    queueMicrotask(() => {
+      if (ignore) return;
+      setPreviewLoading(true);
+      setPreviewError(null);
+      fetch(`/api/owner/classes/${cls.id}/cancel`)
+        .then(async (res) => {
+          const body = await res.json().catch(() => null);
+          if (!res.ok) throw new Error(body?.error ?? "Could not load cancellation preview.");
+          return body as CancellationPreview;
+        })
+        .then((body) => {
+          if (ignore) return;
+          setPreview(body);
+          setCostLines((body.costLines ?? []).map((line) => ({ ...line, action: line.action ?? "full" })));
+          setStaffLines(
+            (body.staffLines ?? []).map((line) => ({
+              ...line,
+              payType: line.payType ?? "full_commission",
+              payableAmount: moneyValue(line.payableAmount ?? line.originalAmount),
+            }))
+          );
+          setSponsorLines(body.sponsorLines ?? []);
+        })
+        .catch((error) => {
+          if (!ignore) setPreviewError(error instanceof Error ? error.message : "Could not load cancellation preview.");
+        })
+        .finally(() => {
+          if (!ignore) setPreviewLoading(false);
+        });
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [cls.id]);
+
+  function updateCostLine(index: number, patch: Partial<CancellationCostLine>) {
+    setCostLines((prev) =>
+      prev.map((line, i) => (i === index ? { ...line, ...patch } : line))
+    );
+  }
+
+  function setCostAction(index: number, action: CancellationCostAction) {
+    setCostLines((prev) =>
+      prev.map((line, i) => {
+        if (i !== index) return line;
+        const originalAmount = moneyValue(line.originalAmount);
+        const payableAmount =
+          action === "zero" || action === "waived"
+            ? 0
+            : action === "custom"
+              ? moneyValue(line.payableAmount)
+              : originalAmount;
+        return { ...line, action, payableAmount };
+      })
+    );
+  }
+
+  function setStaffPayType(index: number, payType: CancellationStaffLine["payType"]) {
+    setStaffLines((prev) =>
+      prev.map((line, i) => {
+        if (i !== index) return line;
+        const fixedAmount = moneyValue(line.fixedAmount);
+        const payableAmount =
+          payType === "no_pay"
+            ? 0
+            : payType === "fixed_fee"
+              ? fixedAmount || moneyValue(line.originalAmount)
+              : payType === "custom_amount"
+                ? moneyValue(line.payableAmount)
+                : moneyValue(line.originalAmount);
+        return { ...line, payType, payableAmount };
+      })
+    );
+  }
+
+  function updateStaffLine(index: number, patch: Partial<CancellationStaffLine>) {
+    setStaffLines((prev) =>
+      prev.map((line, i) => (i === index ? { ...line, ...patch } : line))
+    );
+  }
+
+  function setSponsorAction(index: number, action: CancellationSponsorLine["action"]) {
+    setSponsorLines((prev) =>
+      prev.map((line, i) => {
+        if (i !== index) return line;
+        const originalAmount = moneyValue(line.originalAmount);
+        if (action === "retained") return { ...line, action, retainedAmount: originalAmount, refundAmount: 0 };
+        if (action === "refund" || action === "cancelled") return { ...line, action, retainedAmount: 0, refundAmount: originalAmount };
+        const refundAmount = line.refundAmount > 0 ? moneyValue(line.refundAmount) : roundMoney(originalAmount / 2);
+        return { ...line, action, refundAmount, retainedAmount: roundMoney(originalAmount - refundAmount) };
+      })
+    );
+  }
+
+  function updateSponsorLine(index: number, patch: Partial<CancellationSponsorLine>) {
+    setSponsorLines((prev) =>
+      prev.map((line, i) => (i === index ? { ...line, ...patch } : line))
+    );
+  }
+
+  function submit() {
+    if (!reason.trim() || !preview) return;
+    onConfirm({
+      cancellationReason: reason.trim(),
+      internalNote: note,
+      notifyCustomers,
+      customerRefundMode: refundMode,
+      customRefundPercent: refundMode === "custom_percent" ? customRefundPercent : undefined,
+      cancellationCosts: costLines.map((line) => ({
+        ...line,
+        originalAmount: moneyValue(line.originalAmount),
+        payableAmount: moneyValue(line.payableAmount),
+      })),
+      staffDecisions: staffLines.map((line) => ({
+        staffId: line.staffId,
+        classStaffId: line.classStaffId ?? null,
+        staffName: line.label,
+        payStaff: moneyValue(line.payableAmount) > 0,
+        payType: line.payType ?? (moneyValue(line.payableAmount) > 0 ? "custom_amount" : "no_pay"),
+        originalAmount: moneyValue(line.originalAmount),
+        payableAmount: moneyValue(line.payableAmount),
+        note: line.note,
+      })),
+      sponsorDecisions: sponsorLines.map((line) => ({
+        ...line,
+        originalAmount: moneyValue(line.originalAmount),
+        retainedAmount: moneyValue(line.retainedAmount),
+        refundAmount: moneyValue(line.refundAmount),
+      })),
+    });
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-black text-slate-950">Cancel class</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          <strong>{cls.title}</strong> — this will cancel the class and all active bookings.
-        </p>
-
-        <div className="mt-5 space-y-4">
-          {/* Reason */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Cancellation reason</label>
-            <input
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Instructor unavailable"
-              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
-            />
-          </div>
-
-          {/* Internal note */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Internal note (optional)</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
-            />
-          </div>
-
-          {/* Notify customers */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={notifyCustomers} onChange={(e) => setNotifyCustomers(e.target.checked)} className="accent-indigo-600" />
-            <span className="text-sm font-semibold text-gray-700">Notify customers by email</span>
-          </label>
-
-          {/* Refund mode */}
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-2">Customer refund policy</label>
-            <div className="space-y-2">
-              {([
-                ["full_refund", "Full refund — refund all paid customers 100% (recommended)"],
-                ["no_refund", "No refund — retain all paid amounts"],
-                ["manual_review", "Manual review — decide per booking later"],
-              ] as const).map(([value, label]) => (
-                <label key={value} className="flex items-start gap-2 cursor-pointer">
-                  <input type="radio" name="refundMode" value={value} checked={refundMode === value} onChange={() => setRefundMode(value)} className="mt-0.5 accent-indigo-600" />
-                  <span className="text-sm text-gray-700">{label}</span>
-                </label>
-              ))}
+      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-white shadow-xl">
+        <div className="border-b border-slate-100 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-black text-slate-950">Cancel class</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                <strong>{cls.title}</strong> will be cancelled with a saved money-flow review.
+              </p>
             </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+              Dummy refunds only
+            </span>
           </div>
-
-          {/* Payable costs */}
-          <div className="rounded-xl bg-amber-50 p-3 space-y-3">
-            <p className="text-xs font-bold text-amber-800">Cancellation losses — do you still owe any costs?</p>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={payVenueCost} onChange={(e) => setPayVenueCost(e.target.checked)} className="accent-amber-600" />
-              <span className="text-sm text-gray-700">Venue cancellation fee</span>
-            </label>
-            {payVenueCost && (
-              <input
-                type="number"
-                value={venueCostAmount}
-                onChange={(e) => setVenueCostAmount(e.target.value)}
-                placeholder="Payable amount"
-                min="0"
-                step="0.01"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-amber-400"
-              />
-            )}
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {steps.map((label, index) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setStep(index)}
+                className={`rounded-xl px-3 py-2 text-xs font-black ${
+                  step === index
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                }`}
+              >
+                {index + 1}. {label}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {previewLoading && <p className="text-sm font-semibold text-slate-500">Loading class financials...</p>}
+          {previewError && (
+            <div className="rounded-2xl bg-red-50 p-4 text-sm font-semibold text-red-700 ring-1 ring-red-100">
+              {previewError}
+            </div>
+          )}
+          {preview && (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <CancelMetric label="Gross revenue" value={formatCurrency(preview.financialSummary.grossBookingRevenue, currency)} />
+                <CancelMetric label="Paid bookings" value={String(preview.financialSummary.paidBookingsCount)} />
+                <CancelMetric label="Current net" value={formatCurrency(preview.financialSummary.currentEstimatedNetProfit, currency)} />
+                <CancelMetric label="Final impact" value={formatCurrency(finalNetImpact, currency)} tone={finalNetImpact < 0 ? "red" : "green"} />
+              </div>
+
+              {step === 0 && (
+                <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
+                  <div className="space-y-4 rounded-2xl border border-slate-100 p-4">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">Cancellation reason *</label>
+                      <input
+                        type="text"
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        placeholder="e.g. Instructor unavailable"
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-gray-600">Internal note</label>
+                      <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        rows={4}
+                        className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                      />
+                    </div>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={notifyCustomers}
+                        onChange={(e) => setNotifyCustomers(e.target.checked)}
+                        className="accent-indigo-600"
+                      />
+                      <span className="text-sm font-semibold text-gray-700">Notify customers</span>
+                    </label>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Before cancellation</p>
+                    <dl className="mt-3 space-y-2 text-sm">
+                      <CancelSummaryRow label="Platform fee" value={formatCurrency(preview.financialSummary.platformFee, currency)} />
+                      <CancelSummaryRow label="Staff commission" value={formatCurrency(preview.financialSummary.staffCommission, currency)} />
+                      <CancelSummaryRow label="Staff fixed cost" value={formatCurrency(preview.financialSummary.staffFixedCost, currency)} />
+                      <CancelSummaryRow label="Venue cost" value={formatCurrency(preview.financialSummary.venueCost, currency)} />
+                      <CancelSummaryRow label="Expenses" value={formatCurrency(preview.financialSummary.additionalExpenses, currency)} />
+                      <CancelSummaryRow label="Sponsor income" value={formatCurrency(preview.financialSummary.sponsorIncome, currency)} />
+                      <CancelSummaryRow label="Tax" value={formatCurrency(preview.financialSummary.tax, currency)} />
+                    </dl>
+                  </div>
+                </div>
+              )}
+
+              {step === 1 && (
+                <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="text-sm font-black text-slate-900">Customer refunds</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Refunds are recorded in dummy mode. Nothing here enables Razorpay.
+                    </p>
+                    <div className="mt-4 space-y-2">
+                      {([
+                        ["full_refund", "Refund all customers 100%"],
+                        ["apply_rules", preview.refundRules.length > 0 ? "Use class refund policy" : "Use policy fallback"],
+                        ["custom_percent", "Custom refund percentage"],
+                        ["no_refund", "No refund"],
+                        ["manual_review", "Manual review later"],
+                      ] as const).map(([value, label]) => (
+                        <label key={value} className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-100 px-3 py-2 text-sm hover:bg-slate-50">
+                          <input
+                            type="radio"
+                            name="refundMode"
+                            value={value}
+                            checked={refundMode === value}
+                            onChange={() => setRefundMode(value)}
+                            className="accent-indigo-600"
+                          />
+                          <span className="font-semibold text-slate-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {refundMode === "custom_percent" && (
+                      <div className="mt-3">
+                        <label className="mb-1 block text-xs font-bold text-gray-600">Refund percentage</label>
+                        <input
+                          type="number"
+                          value={customRefundPercent}
+                          min={0}
+                          max={100}
+                          onChange={(e) => setCustomRefundPercent(Math.max(0, Math.min(100, Number(e.target.value))))}
+                          className="w-40 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl bg-indigo-50 p-4">
+                    <p className="text-xs font-black uppercase text-indigo-500">Refund result</p>
+                    <dl className="mt-3 space-y-2 text-sm">
+                      <CancelSummaryRow label="Total paid" value={formatCurrency(totalPaidAmount, currency)} />
+                      <CancelSummaryRow label="Refund total" value={formatCurrency(refundTotal, currency)} />
+                      <CancelSummaryRow label="Retained revenue" value={formatCurrency(retainedRevenue, currency)} />
+                      <CancelSummaryRow label="Policy note" value={preview.financialSummary.refundRuleApplied ?? "No rule"} />
+                    </dl>
+                  </div>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="space-y-4">
+                  <CancellationSection title="Venue, expenses, tax, custom losses">
+                    {costLines.length === 0 ? (
+                      <p className="text-sm text-slate-500">No cost lines found for this class.</p>
+                    ) : (
+                      costLines.map((line, index) => (
+                        <CancellationLineCard key={`${line.costType}-${line.relatedEntityId ?? index}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-black text-slate-900">{line.label}</p>
+                            <p className="text-xs text-slate-500">
+                              {line.costType.replace("_", " ")} · original {formatCurrency(line.originalAmount, currency)}
+                            </p>
+                          </div>
+                          <select
+                            value={line.action ?? "full"}
+                            onChange={(e) => setCostAction(index, e.target.value as CancellationCostAction)}
+                            className="rounded-xl border border-slate-200 px-2 py-2 text-xs font-bold outline-none"
+                          >
+                            <option value="full">Pay full</option>
+                            <option value="zero">Set to 0</option>
+                            <option value="custom">Custom</option>
+                            <option value="already_paid">Already paid</option>
+                            <option value="waived">Waived</option>
+                          </select>
+                          <input
+                            type="number"
+                            value={line.payableAmount}
+                            min={0}
+                            onChange={(e) => updateCostLine(index, { action: "custom", payableAmount: Number(e.target.value) })}
+                            className="w-28 rounded-xl border border-slate-200 px-2 py-2 text-right text-sm outline-none focus:border-indigo-400"
+                          />
+                        </CancellationLineCard>
+                      ))
+                    )}
+                  </CancellationSection>
+
+                  <CancellationSection title="Staff payable">
+                    {staffLines.length === 0 ? (
+                      <p className="text-sm text-slate-500">No staff assigned.</p>
+                    ) : (
+                      staffLines.map((line, index) => (
+                        <CancellationLineCard key={`${line.staffId}-${line.classStaffId ?? index}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-black text-slate-900">{line.label}</p>
+                            <p className="text-xs text-slate-500">
+                              commission {formatCurrency(line.commissionAmount ?? 0, currency)} · fixed {formatCurrency(line.fixedAmount ?? 0, currency)}
+                            </p>
+                          </div>
+                          <select
+                            value={line.payType ?? "full_commission"}
+                            onChange={(e) => setStaffPayType(index, e.target.value as CancellationStaffLine["payType"])}
+                            className="rounded-xl border border-slate-200 px-2 py-2 text-xs font-bold outline-none"
+                          >
+                            <option value="full_commission">Pay full</option>
+                            <option value="fixed_fee">Fixed fee</option>
+                            <option value="custom_amount">Custom</option>
+                            <option value="no_pay">Pay nothing</option>
+                          </select>
+                          <input
+                            type="number"
+                            value={line.payableAmount}
+                            min={0}
+                            onChange={(e) => updateStaffLine(index, { payType: "custom_amount", payableAmount: Number(e.target.value) })}
+                            className="w-28 rounded-xl border border-slate-200 px-2 py-2 text-right text-sm outline-none focus:border-indigo-400"
+                          />
+                        </CancellationLineCard>
+                      ))
+                    )}
+                  </CancellationSection>
+
+                  <CancellationSection title="Sponsors">
+                    {sponsorLines.length === 0 ? (
+                      <p className="text-sm text-slate-500">No sponsors attached.</p>
+                    ) : (
+                      sponsorLines.map((line, index) => (
+                        <CancellationLineCard key={`${line.classSponsorId}-${index}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-black text-slate-900">{line.label}</p>
+                            <p className="text-xs text-slate-500">
+                              sponsor amount {formatCurrency(line.originalAmount, currency)}
+                            </p>
+                          </div>
+                          <select
+                            value={line.action}
+                            onChange={(e) => setSponsorAction(index, e.target.value as CancellationSponsorLine["action"])}
+                            className="rounded-xl border border-slate-200 px-2 py-2 text-xs font-bold outline-none"
+                          >
+                            <option value="retained">Retain</option>
+                            <option value="refund">Refund</option>
+                            <option value="partial_refund">Partial refund</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              value={line.refundAmount}
+                              min={0}
+                              max={line.originalAmount}
+                              onChange={(e) => {
+                                const refundAmount = Math.min(moneyValue(line.originalAmount), Math.max(0, Number(e.target.value)));
+                                updateSponsorLine(index, {
+                                  action: refundAmount > 0 && refundAmount < moneyValue(line.originalAmount) ? "partial_refund" : refundAmount >= moneyValue(line.originalAmount) ? "refund" : "retained",
+                                  refundAmount,
+                                  retainedAmount: roundMoney(moneyValue(line.originalAmount) - refundAmount),
+                                });
+                              }}
+                              className="w-28 rounded-xl border border-slate-200 px-2 py-2 text-right text-sm outline-none focus:border-indigo-400"
+                            />
+                          </div>
+                        </CancellationLineCard>
+                      ))
+                    )}
+                  </CancellationSection>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+                  <div className="rounded-2xl border border-slate-100 p-4">
+                    <p className="text-sm font-black text-slate-900">Final summary</p>
+                    <dl className="mt-3 space-y-2 text-sm">
+                      <CancelSummaryRow label="Original gross revenue" value={formatCurrency(preview.financialSummary.grossBookingRevenue, currency)} />
+                      <CancelSummaryRow label="Customer refund total" value={formatCurrency(refundTotal, currency)} />
+                      <CancelSummaryRow label="Retained revenue" value={formatCurrency(retainedRevenue, currency)} />
+                      <CancelSummaryRow label="Platform fee adjustment" value={formatCurrency(refundTotal > 0 ? -preview.financialSummary.platformFee : 0, currency)} />
+                      <CancelSummaryRow label="Staff payable" value={formatCurrency(staffPayableTotal, currency)} />
+                      <CancelSummaryRow label="Venue payable" value={formatCurrency(venuePayableTotal, currency)} />
+                      <CancelSummaryRow label="Expenses payable" value={formatCurrency(expensesPayableTotal + taxPayableTotal + customPayableTotal, currency)} />
+                      <CancelSummaryRow label="Sponsor retained" value={formatCurrency(sponsorRetainedTotal, currency)} />
+                      <CancelSummaryRow label="Sponsor refund" value={formatCurrency(sponsorRefundTotal, currency)} />
+                      <CancelSummaryRow label="Cancellation loss total" value={formatCurrency(cancellationLossTotal, currency)} />
+                      <CancelSummaryRow label="Final net impact" value={formatCurrency(finalNetImpact, currency)} strong />
+                    </dl>
+                  </div>
+                  <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-800 ring-1 ring-red-100">
+                    <p className="font-black">Confirm cancellation</p>
+                    <p className="mt-2">
+                      This will cancel active bookings, record dummy refund rows, update sponsor and staff cancellation records, and recalculate the class snapshot.
+                    </p>
+                    {!reason.trim() && (
+                      <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-bold text-red-700">
+                        Add a cancellation reason before confirming.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap justify-between gap-2 border-t border-slate-100 p-5">
           <button
             onClick={onCancel}
             disabled={loading}
@@ -158,32 +649,126 @@ function CancelClassModal({
           >
             Keep class
           </button>
-          <button
-            onClick={() => onConfirm({ cancellationReason: reason, internalNote: note, notifyCustomers, customerRefundMode: refundMode, payVenueCost, venueCostAmount })}
-            disabled={loading}
-            className="rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
-          >
-            {loading ? "Cancelling..." : "Confirm cancellation"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStep((value) => Math.max(0, value - 1))}
+              disabled={loading || step === 0}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Back
+            </button>
+            {step < steps.length - 1 ? (
+              <button
+                onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}
+                disabled={loading || previewLoading || (step === 0 && !reason.trim())}
+                className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={loading || previewLoading || !preview || !reason.trim()}
+                className="rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {loading ? "Cancelling..." : "Confirm cancellation"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-
-function ProfitBadge({ status, earning, currency }: {
-  status: string; earning: number; currency: string;
-}) {
-  const sign = status === "profit" ? "+" : "−";
-  if (status === "profit") return (
-    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">{sign}{formatCurrency(Math.abs(earning), currency)}</span>
-  );
-  if (status === "loss") return (
-    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">{sign}{formatCurrency(Math.abs(earning), currency)}</span>
-  );
-  return <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-500">Break-even</span>;
+function moneyValue(value: unknown): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? roundMoney(amount) : 0;
 }
+
+function roundMoney(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function refundAmountForMode(
+  totalPaidAmount: number,
+  mode: CancellationRefundMode,
+  customPercent: number,
+  policyEstimate: number
+) {
+  if (mode === "full_refund") return totalPaidAmount;
+  if (mode === "no_refund" || mode === "manual_review") return 0;
+  if (mode === "apply_rules") return Math.min(totalPaidAmount, policyEstimate);
+  return roundMoney(totalPaidAmount * (Math.max(0, Math.min(100, customPercent)) / 100));
+}
+
+function sumCostLines(lines: CancellationCostLine[], type: CancellationCostType): number {
+  return roundMoney(lines.filter((line) => line.costType === type).reduce((sum, line) => sum + moneyValue(line.payableAmount), 0));
+}
+
+function CancelMetric({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string;
+  tone?: "slate" | "green" | "red";
+}) {
+  const toneClass =
+    tone === "green"
+      ? "text-emerald-700"
+      : tone === "red"
+        ? "text-red-700"
+        : "text-slate-950";
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <p className="text-[11px] font-black uppercase text-slate-400">{label}</p>
+      <p className={`mt-1 text-lg font-black ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function CancelSummaryRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={strong ? "font-black text-slate-950" : "font-bold text-slate-800"}>{value}</dd>
+    </div>
+  );
+}
+
+function CancellationSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-100 p-4">
+      <p className="mb-3 text-sm font-black text-slate-900">{title}</p>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+function CancellationLineCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2">
+      {children}
+    </div>
+  );
+}
+
 
 function StatusBadge({
   cls,
@@ -444,7 +1029,6 @@ export default function OwnerClassesPage() {
     loading,
     currentBusiness,
     addClass,
-    cancelClassWithBookings,
     reactivateClass,
   } = useAppStore();
   const bizCurrency = getOperatingCurrency(currentBusiness);
@@ -490,7 +1074,7 @@ export default function OwnerClassesPage() {
       const stored = localStorage.getItem("vibepass_cols_owner-classes-v2");
       if (stored) return new Set(JSON.parse(stored) as string[]);
     } catch {}
-    return new Set(["revenue"]);
+    return new Set(["platformFee", "staffCost", "sponsorIncome", "profitPerBooking", "breakEven"]);
   });
 
   // ── Net profit popover — uses fixed positioning to break out of overflow-x-auto ──
@@ -621,35 +1205,19 @@ export default function OwnerClassesPage() {
     setDeleteModal(null);
   }
 
-  async function handleCancelClass(payload: {
-    cancellationReason: string;
-    internalNote: string;
-    notifyCustomers: boolean;
-    customerRefundMode: "full_refund" | "no_refund" | "manual_review";
-    payVenueCost: boolean;
-    venueCostAmount: string;
-  }) {
+  async function handleCancelClass(payload: CancellationSubmitPayload) {
     if (!cancelClassModal) return;
     setCancelClassLoading(true);
-    const costs = [];
-    if (payload.payVenueCost && Number(payload.venueCostAmount) > 0) {
-      costs.push({
-        costType: "venue",
-        label: "Venue cancellation fee",
-        originalAmount: 0,
-        payableAmount: Number(payload.venueCostAmount),
-        currency: bizCurrency,
-      });
-    }
     const res = await fetch(`/api/owner/classes/${cancelClassModal.id}/cancel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        cancellationReason: payload.cancellationReason || undefined,
+        ...payload,
         internalNote: payload.internalNote || undefined,
-        notifyCustomers: payload.notifyCustomers,
-        customerRefundMode: payload.customerRefundMode,
-        cancellationCosts: costs.length > 0 ? costs : undefined,
+        cancellationCosts: payload.cancellationCosts.map((cost) => ({
+          ...cost,
+          currency: cost.currency ?? bizCurrency,
+        })),
       }),
     });
     setCancelClassLoading(false);
@@ -1401,10 +1969,10 @@ export default function OwnerClassesPage() {
                                   title: cls.title,
                                 }}
                               />
-                              <div>
-                                <p className="font-semibold text-gray-900 text-sm">
+                              <div className="min-w-0">
+                                <Link href={`/owner/classes/${cls.id}/edit`} className="block truncate text-sm font-semibold text-gray-900 hover:text-indigo-700">
                                   {cls.title}
-                                </p>
+                                </Link>
                                 <p className="text-xs text-gray-400">
                                   {cls.instructorName ?? cls.category}
                                 </p>

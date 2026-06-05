@@ -182,7 +182,7 @@ export function WaveBars({
   tone = "teal",
   valuePrefix = "",
 }: {
-  items: { label: string; value: number }[];
+  items: { id?: string; label: string; value: number }[];
   tone?: MetricRibbonProps["tone"];
   valuePrefix?: string;
 }) {
@@ -210,8 +210,9 @@ export function WaveBars({
     <div className="grid min-h-72 grid-cols-[repeat(auto-fit,minmax(4rem,1fr))] items-end gap-3 rounded-[1.75rem] bg-white/60 p-4 dark:bg-slate-950/30">
       {items.map((item, index) => {
         const height = Math.max(14, Math.round((item.value / max) * 100));
+        const normalizedLabel = item.label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         return (
-          <div key={item.label} className="flex min-w-0 flex-col items-center gap-2">
+          <div key={item.id ?? `${normalizedLabel}-${index}`} className="flex min-w-0 flex-col items-center gap-2">
             <div className="relative flex h-48 w-full items-end justify-center overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
               <div
                 className={`w-full rounded-full bg-gradient-to-t ${gradient}`}

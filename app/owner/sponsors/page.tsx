@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
+import DataTable, { Td, Th, type ColDef } from "@/components/DataTable";
+import { OwnerActionMenu, OwnerPageHeader, OwnerStatusChip, ownerMenuItemClass } from "@/components/OwnerUI";
 
 interface SponsorRow {
   id: string;
@@ -30,6 +31,9 @@ interface ClassSponsorRow {
   sponsor_display_name?: string | null;
   sponsor_logo_url?: string | null;
   sponsor_message?: string | null;
+  sponsor_status?: string | null;
+  sponsor_refund_amount?: number | null;
+  sponsor_retained_amount?: number | null;
   classes?: { title?: string | null; date?: string | null } | { title?: string | null; date?: string | null }[] | null;
   sponsors?: { sponsor_name?: string | null } | { sponsor_name?: string | null }[] | null;
 }
@@ -60,6 +64,27 @@ const attachFormInitial = {
   note: "",
 };
 
+const SPONSOR_COLUMNS: ColDef[] = [
+  { key: "sponsor", label: "Sponsor name", fixed: true },
+  { key: "contact", label: "Contact" },
+  { key: "classes", label: "Classes sponsored" },
+  { key: "total", label: "Total sponsored" },
+  { key: "visibility", label: "Public/private" },
+  { key: "refund", label: "Refund/cancel" },
+  { key: "impact", label: "Revenue/profit impact" },
+  { key: "status", label: "Status" },
+  { key: "actions", label: "Actions", fixed: true },
+];
+
+const CLASS_SPONSOR_COLUMNS: ColDef[] = [
+  { key: "class", label: "Class", fixed: true },
+  { key: "sponsor", label: "Sponsor" },
+  { key: "amount", label: "Amount" },
+  { key: "payment", label: "Payment" },
+  { key: "visibility", label: "Public" },
+  { key: "cancellation", label: "Cancellation" },
+];
+
 function joinedClass(row: ClassSponsorRow) {
   return Array.isArray(row.classes) ? row.classes[0] : row.classes;
 }
@@ -79,6 +104,11 @@ export default function OwnerSponsorsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [showSponsorTools, setShowSponsorTools] = useState(false);
+  const [editingSponsorId, setEditingSponsorId] = useState("");
+  const [selectedSponsor, setSelectedSponsor] = useState<SponsorRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const businessClasses = currentBusiness
     ? classes.filter((cls) => cls.businessId === currentBusiness.id)
@@ -135,9 +165,9 @@ export default function OwnerSponsorsPage() {
     setError("");
     setSuccess("");
     const response = await fetch("/api/owner/sponsors", {
-      method: "POST",
+      method: editingSponsorId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...sponsorForm, businessId: currentBusiness.id }),
+      body: JSON.stringify({ ...sponsorForm, sponsorId: editingSponsorId || undefined, businessId: currentBusiness.id }),
     });
     const data = await response.json().catch(() => ({}));
     setSaving(false);
@@ -146,8 +176,31 @@ export default function OwnerSponsorsPage() {
       return;
     }
     setSponsorForm(sponsorFormInitial);
-    setSuccess("Sponsor saved.");
+    setEditingSponsorId("");
+    setSuccess(editingSponsorId ? "Sponsor updated." : "Sponsor saved.");
     await loadSponsors();
+  }
+
+  function editSponsor(sponsor: SponsorRow) {
+    setEditingSponsorId(sponsor.id);
+    setSponsorForm({
+      sponsorName: sponsor.sponsor_name,
+      contactPerson: sponsor.contact_person ?? "",
+      email: sponsor.email ?? "",
+      phone: sponsor.phone ?? "",
+      website: sponsor.website ?? "",
+      logoUrl: sponsor.logo_url ?? "",
+      description: sponsor.description ?? "",
+      category: sponsor.category ?? "",
+      notes: sponsor.notes ?? "",
+    });
+    setShowSponsorTools(true);
+  }
+
+  function resetSponsorForm() {
+    setEditingSponsorId("");
+    setSponsorForm(sponsorFormInitial);
+    setShowSponsorTools((value) => !value);
   }
 
   async function attachSponsor(event: React.FormEvent) {
@@ -201,21 +254,82 @@ export default function OwnerSponsorsPage() {
     return <main className="min-h-screen px-6 py-10 text-sm text-slate-500">No business found.</main>;
   }
 
+  function statsForSponsor(sponsorId: string) {
+    const rows = classSponsors.filter((item) => item.sponsor_id === sponsorId);
+    const classIds = new Set(rows.map((item) => item.class_id));
+    const totalSponsored = rows.reduce((sum, item) => sum + Number(item.sponsor_amount ?? 0), 0);
+    const publicCount = rows.filter((item) => item.show_sponsor_publicly).length;
+    const refundTotal = rows.reduce((sum, item) => sum + Number(item.sponsor_refund_amount ?? 0), 0);
+    const retainedTotal = rows.reduce((sum, item) => sum + Number(item.sponsor_retained_amount ?? item.sponsor_amount ?? 0), 0);
+    const revenue = rows.reduce((sum, item) => sum + Number(financeByClass[item.class_id]?.gross_revenue ?? 0), 0);
+    const profit = rows.reduce((sum, item) => sum + Number(financeByClass[item.class_id]?.net_profit ?? 0), 0);
+    const sponsorStatuses = [...new Set(rows.map((item) => item.sponsor_status ?? item.payment_status).filter(Boolean))];
+    return {
+      classCount: classIds.size,
+      totalSponsored,
+      publicCount,
+      privateCount: Math.max(0, rows.length - publicCount),
+      refundTotal,
+      retainedTotal,
+      revenue,
+      profit,
+      sponsorStatuses,
+    };
+  }
+
+  const filteredSponsors = sponsors.filter((sponsor) => {
+    const needle = search.trim().toLowerCase();
+    if (statusFilter !== "all" && sponsor.status !== statusFilter) return false;
+    if (!needle) return true;
+    return [
+      sponsor.sponsor_name,
+      sponsor.contact_person ?? "",
+      sponsor.email ?? "",
+      sponsor.phone ?? "",
+      sponsor.category ?? "",
+    ].some((value) => value.toLowerCase().includes(needle));
+  });
+
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <Link href="/owner/dashboard" className="text-sm text-slate-500 hover:text-slate-700">
-              Back to dashboard
-            </Link>
-            <h1 className="mt-2 text-2xl font-black text-slate-950">Sponsors</h1>
-            <p className="text-sm text-slate-500">Manage sponsor records and public class sponsor placement.</p>
+        <OwnerPageHeader
+          eyebrow="Sponsors"
+          title="Sponsor Management"
+          description="Track sponsor records, class placements, public visibility, and cancellation impact."
+          primaryAction={
+            <button
+              type="button"
+              onClick={resetSponsorForm}
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700"
+            >
+              + Create Sponsor
+            </button>
+          }
+        />
+
+        {selectedSponsor && (
+          <div className="mb-5 rounded-2xl bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-50 text-sm font-black text-indigo-700">
+                  {selectedSponsor.logo_url ? <img src={selectedSponsor.logo_url} alt="" className="h-full w-full object-cover" /> : selectedSponsor.sponsor_name.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase text-indigo-600">Sponsor detail</p>
+                  <h2 className="truncate text-xl font-black text-slate-950">{selectedSponsor.sponsor_name}</h2>
+                  <p className="truncate text-sm font-semibold text-slate-500">{selectedSponsor.contact_person || selectedSponsor.email || selectedSponsor.phone || "No contact saved"}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setSelectedSponsor(null)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">
+                Close
+              </button>
+            </div>
+            {selectedSponsor.description && (
+              <p className="mt-4 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-600">{selectedSponsor.description}</p>
+            )}
           </div>
-          <Link href="/owner/classes" className="rounded-full border border-indigo-200 bg-white px-5 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50">
-            Classes
-          </Link>
-        </div>
+        )}
 
         {error && (
           <div className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm font-semibold text-red-600">
@@ -228,10 +342,24 @@ export default function OwnerSponsorsPage() {
           </div>
         )}
 
-        <div className="grid gap-6 xl:grid-cols-[24rem_minmax(0,1fr)]">
-          <div className="grid gap-6">
+        {showSponsorTools && (
+          <div className="mb-6 grid gap-6 xl:grid-cols-2">
             <form onSubmit={submitSponsor} className="rounded-2xl bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-black text-slate-950">Add sponsor</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-black text-slate-950">{editingSponsorId ? "Edit sponsor" : "Add sponsor"}</h2>
+                {editingSponsorId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingSponsorId("");
+                      setSponsorForm(sponsorFormInitial);
+                    }}
+                    className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-50"
+                  >
+                    New sponsor
+                  </button>
+                )}
+              </div>
               <div className="mt-4 grid gap-3">
                 <input required value={sponsorForm.sponsorName} onChange={(e) => setSponsorForm((p) => ({ ...p, sponsorName: e.target.value }))} placeholder="Sponsor name" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -247,7 +375,7 @@ export default function OwnerSponsorsPage() {
                 <textarea value={sponsorForm.description} onChange={(e) => setSponsorForm((p) => ({ ...p, description: e.target.value }))} rows={3} placeholder="Description" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <textarea value={sponsorForm.notes} onChange={(e) => setSponsorForm((p) => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Internal notes" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <button disabled={saving} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50">
-                  {saving ? "Saving..." : "Save sponsor"}
+                  {saving ? "Saving..." : editingSponsorId ? "Update sponsor" : "Save sponsor"}
                 </button>
               </div>
             </form>
@@ -292,105 +420,199 @@ export default function OwnerSponsorsPage() {
               </div>
             </form>
           </div>
+        )}
 
-          <div className="grid gap-6">
-            <section className="rounded-2xl bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-black text-slate-950">Sponsor directory</h2>
-              <div className="mt-4 grid gap-3">
-                {sponsors.map((sponsor) => (
-                  <div key={sponsor.id} className="rounded-2xl border border-slate-100 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50 text-sm font-black text-indigo-700">
-                          {sponsor.logo_url ? <img src={sponsor.logo_url} alt="" className="h-full w-full object-cover" /> : sponsor.sponsor_name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-black text-slate-900">{sponsor.sponsor_name}</p>
-                          <p className="truncate text-xs text-slate-400">{[sponsor.contact_person, sponsor.email, sponsor.phone].filter(Boolean).join(" / ") || "No contact details"}</p>
-                          {sponsor.website && (
-                            <a href={sponsor.website} target="_blank" rel="noopener noreferrer" className="mt-1 block truncate text-xs font-bold text-indigo-600 hover:text-indigo-800">
-                              {sponsor.website}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void setSponsorStatus(sponsor, sponsor.status === "active" ? "inactive" : "active")}
-                        className={`rounded-full px-3 py-1 text-xs font-black ${sponsor.status === "active" ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}
-                      >
-                        {sponsor.status}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {sponsors.length === 0 && (
-                  <p className="rounded-2xl bg-slate-50 px-5 py-10 text-center text-sm text-slate-400">
-                    No sponsors yet.
-                  </p>
-                )}
-              </div>
-            </section>
+        <div className="grid gap-6">
+          <DataTable
+            tableId="owner-sponsors"
+            columns={SPONSOR_COLUMNS}
+            searchQuery={search}
+            onSearchQuery={setSearch}
+            searchPlaceholder="Search sponsors..."
+            summary={`${filteredSponsors.length} sponsor${filteredSponsors.length !== 1 ? "s" : ""}`}
+            toolbar={
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="completed">Completed</option>
+              </select>
+            }
+            emptyState={
+              filteredSponsors.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  {sponsors.length === 0 ? "No sponsors yet." : "No sponsors match these filters."}
+                </div>
+              ) : undefined
+            }
+          >
+            {(vis) => (
+              <table className="w-full min-w-[1080px] text-sm">
+                <thead>
+                  <tr>
+                    {vis.has("sponsor") && <Th>Sponsor name</Th>}
+                    {vis.has("contact") && <Th>Contact</Th>}
+                    {vis.has("classes") && <Th>Classes sponsored</Th>}
+                    {vis.has("total") && <Th>Total sponsored</Th>}
+                    {vis.has("visibility") && <Th>Public/private</Th>}
+                    {vis.has("refund") && <Th>Refund/cancel</Th>}
+                    {vis.has("impact") && <Th>Revenue/profit impact</Th>}
+                    {vis.has("status") && <Th>Status</Th>}
+                    {vis.has("actions") && <Th align="right">Actions</Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSponsors.map((sponsor) => {
+                    const stats = statsForSponsor(sponsor.id);
+                    return (
+                      <tr key={sponsor.id} className="hover:bg-slate-50">
+                        {vis.has("sponsor") && (
+                          <Td>
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-50 text-xs font-black text-indigo-700">
+                                {sponsor.logo_url ? <img src={sponsor.logo_url} alt="" className="h-full w-full object-cover" /> : sponsor.sponsor_name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-black text-slate-900">{sponsor.sponsor_name}</p>
+                                <p className="truncate text-xs text-slate-400">{sponsor.category || sponsor.website || "Sponsor"}</p>
+                              </div>
+                            </div>
+                          </Td>
+                        )}
+                        {vis.has("contact") && <Td className="max-w-[14rem] truncate text-slate-600">{[sponsor.contact_person, sponsor.email, sponsor.phone].filter(Boolean).join(" / ") || "—"}</Td>}
+                        {vis.has("classes") && <Td>{stats.classCount}</Td>}
+                        {vis.has("total") && <Td>{formatCurrency(stats.totalSponsored, bizCurrency)}</Td>}
+                        {vis.has("visibility") && <Td>{stats.publicCount} public / {stats.privateCount} private</Td>}
+                        {vis.has("refund") && (
+                          <Td>
+                            <p className="text-xs font-bold text-slate-600">{stats.sponsorStatuses.join(", ") || "active"}</p>
+                            {stats.refundTotal > 0 && (
+                              <p className="text-xs text-rose-600">Refund {formatCurrency(stats.refundTotal, bizCurrency)}</p>
+                            )}
+                          </Td>
+                        )}
+                        {vis.has("impact") && (
+                          <Td>
+                            <p>{formatCurrency(stats.revenue, bizCurrency)} revenue</p>
+                            <p className={stats.profit < 0 ? "text-xs font-bold text-rose-600" : "text-xs font-bold text-emerald-700"}>
+                              {formatCurrency(stats.profit, bizCurrency)} profit
+                            </p>
+                          </Td>
+                        )}
+                        {vis.has("status") && (
+                          <Td>
+                            <OwnerStatusChip status={sponsor.status} />
+                          </Td>
+                        )}
+                        {vis.has("actions") && (
+                          <Td align="right">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedSponsor(sponsor)}
+                                className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100"
+                              >
+                                View
+                              </button>
+                              <OwnerActionMenu>
+                                <button type="button" onClick={() => editSponsor(sponsor)} className={ownerMenuItemClass}>
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void setSponsorStatus(sponsor, sponsor.status === "active" ? "inactive" : "active")}
+                                  className={`${ownerMenuItemClass} ${sponsor.status === "active" ? "text-rose-600 hover:text-rose-700" : ""}`}
+                                >
+                                  {sponsor.status === "active" ? "Archive" : "Activate"}
+                                </button>
+                              </OwnerActionMenu>
+                            </div>
+                          </Td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </DataTable>
 
-            <section className="rounded-2xl bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-black text-slate-950">Class sponsorships</h2>
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[740px] text-sm">
-                  <thead className="border-b border-slate-100 text-left text-xs font-black uppercase text-slate-400">
-                    <tr>
-                      <th className="px-3 py-3">Class</th>
-                      <th className="px-3 py-3">Sponsor</th>
-                      <th className="px-3 py-3">Amount</th>
-                      <th className="px-3 py-3">Payment</th>
-                      <th className="px-3 py-3">Public</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {classSponsors.map((item) => {
-                      const snapshot = financeByClass[item.class_id];
-                      const sponsorIncome = snapshot ? Number(snapshot.sponsor_income ?? 0) : 0;
-                      const grossRevenue = Number(snapshot?.gross_revenue ?? 0);
-                      const contribution = grossRevenue > 0 ? Math.round((sponsorIncome / grossRevenue) * 100) : 0;
-                      return (
-                      <tr key={item.id}>
-                        <td className="px-3 py-4">
-                          <p className="font-bold text-slate-900">{joinedClass(item)?.title ?? "Class"}</p>
-                          <p className="text-xs text-slate-400">{joinedClass(item)?.date ?? ""}</p>
-                        </td>
-                        <td className="px-3 py-4 text-sm font-semibold text-slate-600">
-                          {item.sponsor_display_name || joinedSponsor(item)?.sponsor_name || "Sponsor"}
-                        </td>
-                        <td className="px-3 py-4 text-sm font-semibold text-slate-600">
-                          {formatCurrency(sponsorIncome, bizCurrency)}
-                          <span className="mt-0.5 block text-xs font-medium text-slate-400">
-                            {contribution}% of class revenue
-                          </span>
-                        </td>
-                        <td className="px-3 py-4">
-                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase text-slate-600">
-                            {item.payment_status}
-                          </span>
-                        </td>
-                        <td className="px-3 py-4">
-                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${item.show_sponsor_publicly ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"}`}>
-                            {item.show_sponsor_publicly ? "shown" : "hidden"}
-                          </span>
-                        </td>
+          <DataTable
+            tableId="owner-class-sponsorships"
+            columns={CLASS_SPONSOR_COLUMNS}
+            summary={`${classSponsors.length} class sponsorship${classSponsors.length !== 1 ? "s" : ""}`}
+            emptyState={
+              classSponsors.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  No class sponsorships yet.
+                </div>
+              ) : undefined
+            }
+          >
+            {(vis) => (
+              <table className="w-full min-w-[840px] text-sm">
+                <thead>
+                  <tr>
+                    {vis.has("class") && <Th>Class</Th>}
+                    {vis.has("sponsor") && <Th>Sponsor</Th>}
+                    {vis.has("amount") && <Th>Amount</Th>}
+                    {vis.has("payment") && <Th>Payment</Th>}
+                    {vis.has("visibility") && <Th>Public</Th>}
+                    {vis.has("cancellation") && <Th>Cancellation</Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {classSponsors.map((item) => {
+                    const snapshot = financeByClass[item.class_id];
+                    const sponsorIncome = snapshot ? Number(snapshot.sponsor_income ?? item.sponsor_amount ?? 0) : Number(item.sponsor_amount ?? 0);
+                    const grossRevenue = Number(snapshot?.gross_revenue ?? 0);
+                    const contribution = grossRevenue > 0 ? Math.round((sponsorIncome / grossRevenue) * 100) : 0;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        {vis.has("class") && (
+                          <Td>
+                            <p className="font-bold text-slate-900">{joinedClass(item)?.title ?? "Class"}</p>
+                            <p className="text-xs text-slate-400">{joinedClass(item)?.date ?? ""}</p>
+                          </Td>
+                        )}
+                        {vis.has("sponsor") && <Td>{item.sponsor_display_name || joinedSponsor(item)?.sponsor_name || "Sponsor"}</Td>}
+                        {vis.has("amount") && (
+                          <Td>
+                            {formatCurrency(sponsorIncome, bizCurrency)}
+                            <span className="mt-0.5 block text-xs font-medium text-slate-400">
+                              {contribution}% of class revenue
+                            </span>
+                          </Td>
+                        )}
+                        {vis.has("payment") && (
+                          <Td>
+                            <OwnerStatusChip status={item.payment_status} />
+                          </Td>
+                        )}
+                        {vis.has("visibility") && (
+                          <Td>
+                            <OwnerStatusChip status={item.show_sponsor_publicly ? "active" : "inactive"} />
+                          </Td>
+                        )}
+                        {vis.has("cancellation") && (
+                          <Td>
+                            <p className="text-xs font-bold text-slate-600">{item.sponsor_status ?? "active"}</p>
+                            {(item.sponsor_refund_amount ?? 0) > 0 && (
+                              <p className="text-xs text-rose-600">Refund {formatCurrency(item.sponsor_refund_amount ?? 0, bizCurrency)}</p>
+                            )}
+                          </Td>
+                        )}
                       </tr>
-                      );
-                    })}
-                    {classSponsors.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-400">
-                          No class sponsorships yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </DataTable>
         </div>
       </div>
     </main>

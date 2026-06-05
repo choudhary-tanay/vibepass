@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime } from "@/lib/utils";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
+import { OwnerPageHeader } from "@/components/OwnerUI";
 
 function BookingStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -175,21 +176,21 @@ export default function OwnerBookingsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 sm:py-10">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm">
-          <Link
-            href="/owner/dashboard"
-            className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-          >
-            ← Dashboard
-          </Link>
-          <p className="text-sm font-bold uppercase text-blue-600">Bookings</p>
-          <h1 className="mt-1 text-3xl font-black text-slate-950">Customer Bookings</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {ownerBookings.length} total · {filtered.length} shown
-          </p>
-        </div>
+      <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mx-auto max-w-6xl">
+        <OwnerPageHeader
+          eyebrow="Bookings"
+          title="Customer Bookings"
+          description={`${ownerBookings.length} total · ${filtered.length} shown`}
+          primaryAction={
+            <Link
+              href="/owner/classes"
+              className="rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
+            >
+              Manage classes
+            </Link>
+          }
+        />
 
         {/* Bookings */}
         <DataTable
@@ -201,7 +202,7 @@ export default function OwnerBookingsPage() {
           summary={`${filtered.length} booking${filtered.length !== 1 ? "s" : ""}`}
           toolbar={toolbar}
           emptyState={
-            <div className="p-12 text-center">
+            filtered.length === 0 ? <div className="p-12 text-center">
               <p className="text-lg font-medium text-gray-700">
                 {hasFilters || q ? "No bookings match these filters." : "No bookings yet."}
               </p>
@@ -220,7 +221,7 @@ export default function OwnerBookingsPage() {
                   </p>
                 )
               )}
-            </div>
+            </div> : undefined
           }
         >
           {(vis) => (

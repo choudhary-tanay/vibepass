@@ -235,6 +235,100 @@ SET refund_mode = 'dummy',
     updated_at = NOW()
 WHERE refund_mode NOT IN ('dummy', 'razorpay', 'manual');
 
+-- Cancellation money-flow repair: add the owner review totals and line-item fields
+-- that NF-0I did not originally include. These are additive and safe to re-run.
+ALTER TABLE class_cancellation_records
+  ADD COLUMN IF NOT EXISTS platform_fee_adjustment NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS staff_payable_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS venue_payable_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS expenses_payable_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sponsor_retained_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sponsor_refund_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS final_net_impact NUMERIC(12,2) NOT NULL DEFAULT 0;
+
+ALTER TABLE class_cancellation_costs
+  ADD COLUMN IF NOT EXISTS related_entity_id UUID,
+  ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'full';
+
+DO $$
+BEGIN
+  ALTER TABLE class_cancellation_costs
+    DROP CONSTRAINT IF EXISTS class_cancellation_costs_cost_type_check;
+  ALTER TABLE class_cancellation_costs
+    ADD CONSTRAINT class_cancellation_costs_cost_type_check
+    CHECK (cost_type IN (
+      'venue',
+      'staff_commission',
+      'staff_fixed',
+      'expense',
+      'sponsor_forfeit',
+      'sponsor_refund',
+      'tax',
+      'custom'
+    ));
+
+  ALTER TABLE class_cancellation_costs
+    DROP CONSTRAINT IF EXISTS class_cancellation_costs_payment_status_check;
+  ALTER TABLE class_cancellation_costs
+    ADD CONSTRAINT class_cancellation_costs_payment_status_check
+    CHECK (payment_status IN (
+      'unpaid',
+      'pending',
+      'paid',
+      'waived',
+      'needs_review',
+      'refunded',
+      'already_paid'
+    ));
+
+  ALTER TABLE class_cancellation_costs
+    DROP CONSTRAINT IF EXISTS class_cancellation_costs_action_check;
+  ALTER TABLE class_cancellation_costs
+    ADD CONSTRAINT class_cancellation_costs_action_check
+    CHECK (action IN (
+      'full',
+      'zero',
+      'custom',
+      'already_paid',
+      'waived',
+      'refund',
+      'retained'
+    ));
+END $$;
+
+ALTER TABLE class_sponsors
+  ADD COLUMN IF NOT EXISTS sponsor_status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS sponsor_refund_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS sponsor_retained_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cancellation_record_id UUID;
+
+DO $$
+BEGIN
+  ALTER TABLE class_sponsors
+    DROP CONSTRAINT IF EXISTS class_sponsors_sponsor_status_check;
+  ALTER TABLE class_sponsors
+    ADD CONSTRAINT class_sponsors_sponsor_status_check
+    CHECK (sponsor_status IN (
+      'active',
+      'cancelled',
+      'retained',
+      'refunded',
+      'refund',
+      'partial_refund'
+    ));
+END $$;
+
+UPDATE class_sponsors
+SET sponsor_status = CASE
+      WHEN payment_status = 'cancelled' THEN 'cancelled'
+      ELSE COALESCE(NULLIF(sponsor_status, ''), 'active')
+    END,
+    sponsor_retained_amount = CASE
+      WHEN payment_status = 'cancelled' THEN COALESCE(sponsor_retained_amount, 0)
+      ELSE COALESCE(NULLIF(sponsor_retained_amount, 0), sponsor_amount, 0)
+    END,
+    updated_at = NOW();
+
 -- Backfill paid cancelled bookings that still lack a refund row.
 INSERT INTO booking_refunds (
   booking_id,

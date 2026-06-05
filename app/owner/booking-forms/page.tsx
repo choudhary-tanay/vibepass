@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useAppStore } from "@/lib/appStore";
+import DataTable, { Td, Th, type ColDef } from "@/components/DataTable";
+import { OwnerActionMenu, OwnerPageHeader, OwnerStatusChip, ownerMenuItemClass } from "@/components/OwnerUI";
 
 type FieldType =
   | "text"
@@ -29,6 +30,12 @@ type TemplateRow = {
   id: string;
   name: string;
   description?: string | null;
+  is_default?: boolean | null;
+  is_archived?: boolean | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  classesUsingCount?: number;
+  responseCount?: number;
   fields?: Array<{
     id: string;
     field_key?: string;
@@ -59,6 +66,16 @@ const FIELD_TYPES: { value: FieldType; label: string }[] = [
   { value: "checkbox", label: "Checkbox" },
   { value: "date", label: "Date" },
   { value: "consent", label: "Consent" },
+];
+
+const TEMPLATE_COLUMNS: ColDef[] = [
+  { key: "form", label: "Form name", fixed: true },
+  { key: "fields", label: "Fields" },
+  { key: "classes", label: "Classes using" },
+  { key: "responses", label: "Responses" },
+  { key: "updated", label: "Last updated" },
+  { key: "status", label: "Status" },
+  { key: "actions", label: "Actions", fixed: true },
 ];
 
 function emptyField(): FieldDraft {
@@ -94,12 +111,22 @@ export default function OwnerBookingFormsPage() {
   const [templateResponses, setTemplateResponses] = useState<TemplateResponses | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [templateSearch, setTemplateSearch] = useState("");
 
   const businessId = currentBusiness?.id ?? "";
   const ownerClasses = useMemo(
     () => classes.filter((cls) => cls.businessId === businessId),
     [classes, businessId]
   );
+  const filteredTemplates = useMemo(() => {
+    const needle = templateSearch.trim().toLowerCase();
+    if (!needle) return templates;
+    return templates.filter((template) =>
+      [template.name, template.description ?? ""].some((value) =>
+        value.toLowerCase().includes(needle)
+      )
+    );
+  }, [templateSearch, templates]);
 
   async function loadTemplates() {
     if (!businessId) return;
@@ -118,7 +145,9 @@ export default function OwnerBookingFormsPage() {
   }
 
   useEffect(() => {
-    void loadTemplates();
+    queueMicrotask(() => {
+      void loadTemplates();
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId]);
 
@@ -269,6 +298,15 @@ export default function OwnerBookingFormsPage() {
     }
   }
 
+  function formatTemplateDate(value?: string | null) {
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
   async function viewResponses(templateId: string) {
     setResponseTemplateId(templateId);
     setTemplateResponses(null);
@@ -317,25 +355,123 @@ export default function OwnerBookingFormsPage() {
   return (
     <main className="min-h-screen px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <Link href="/owner/classes" className="text-sm text-slate-500 hover:text-slate-700">
-              Classes
-            </Link>
-            <h1 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">Booking Forms</h1>
-            <p className="mt-1 text-sm text-slate-500">{currentBusiness?.businessName ?? "Studio"}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadTemplates()}
-            className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            Refresh
-          </button>
-        </div>
+        <OwnerPageHeader
+          backHref="/owner/classes"
+          backLabel="Classes"
+          eyebrow="Forms"
+          title="Booking Forms"
+          description={`${currentBusiness?.businessName ?? "Studio"} intake templates, assignments, and responses.`}
+          primaryAction={
+            <button
+              type="button"
+              onClick={resetBuilder}
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700"
+            >
+              + Create Form
+            </button>
+          }
+          secondaryAction={
+            <button
+              type="button"
+              onClick={() => void loadTemplates()}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              Refresh
+            </button>
+          }
+        />
 
         {error && <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
         {status && <div className="mb-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{status}</div>}
+
+        <div className="mb-6">
+          <DataTable
+            tableId="owner-booking-forms"
+            columns={TEMPLATE_COLUMNS}
+            searchQuery={templateSearch}
+            onSearchQuery={setTemplateSearch}
+            searchPlaceholder="Search forms..."
+            summary={`${filteredTemplates.length} form${filteredTemplates.length !== 1 ? "s" : ""}`}
+            loading={loadingTemplates}
+            emptyState={
+              filteredTemplates.length === 0 && !loadingTemplates ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  {templateSearch ? "No forms match this search." : "No forms yet."}
+                </div>
+              ) : undefined
+            }
+          >
+            {(vis) => (
+              <table className="w-full min-w-[840px] text-sm">
+                <thead>
+                  <tr>
+                    {vis.has("form") && <Th>Form name</Th>}
+                    {vis.has("fields") && <Th>Field count</Th>}
+                    {vis.has("classes") && <Th>Classes using</Th>}
+                    {vis.has("responses") && <Th>Responses</Th>}
+                    {vis.has("updated") && <Th>Last updated</Th>}
+                    {vis.has("status") && <Th>Status</Th>}
+                    {vis.has("actions") && <Th align="right">Actions</Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTemplates.map((template) => (
+                    <tr key={template.id} className="hover:bg-slate-50">
+                      {vis.has("form") && (
+                        <Td>
+                          <p className="font-black text-slate-900">{template.name}</p>
+                          <p className="mt-0.5 line-clamp-1 text-xs text-slate-400">
+                            {template.description || "No description"}
+                          </p>
+                        </Td>
+                      )}
+                      {vis.has("fields") && <Td>{template.fields?.length ?? 0}</Td>}
+                      {vis.has("classes") && <Td>{template.classesUsingCount ?? 0}</Td>}
+                      {vis.has("responses") && <Td>{template.responseCount ?? 0}</Td>}
+                      {vis.has("updated") && <Td>{formatTemplateDate(template.updated_at ?? template.created_at)}</Td>}
+                      {vis.has("status") && (
+                        <Td>
+                          <OwnerStatusChip status={template.is_archived ? "inactive" : template.is_default ? "published" : "active"} />
+                        </Td>
+                      )}
+                      {vis.has("actions") && (
+                        <Td align="right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void viewResponses(template.id)}
+                              className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100"
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => editTemplate(template)}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50"
+                            >
+                              Edit
+                            </button>
+                            <OwnerActionMenu>
+                              <button type="button" onClick={() => void duplicateTemplate(template)} className={ownerMenuItemClass}>
+                                Duplicate
+                              </button>
+                              <button type="button" onClick={() => void archiveTemplate(template)} className={`${ownerMenuItemClass} text-rose-600 hover:text-rose-700`}>
+                                Archive
+                              </button>
+                              <button type="button" onClick={() => void viewResponses(template.id)} className={ownerMenuItemClass}>
+                                Responses
+                              </button>
+                            </OwnerActionMenu>
+                          </div>
+                        </Td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </DataTable>
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
           <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-slate-900">
@@ -495,56 +631,6 @@ export default function OwnerBookingFormsPage() {
                 >
                   Assign
                 </button>
-              </div>
-            </section>
-
-            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-slate-900">
-              <h2 className="text-lg font-black text-slate-950 dark:text-white">Templates</h2>
-              <div className="mt-4 grid gap-3">
-                {loadingTemplates ? (
-                  <p className="text-sm text-slate-400">Loading templates...</p>
-                ) : templates.length === 0 ? (
-                  <p className="text-sm text-slate-400">No templates yet.</p>
-                ) : (
-                  templates.map((template) => (
-                    <div key={template.id} className="rounded-xl border border-slate-100 px-4 py-3">
-                      <p className="font-black text-slate-950 dark:text-white">{template.name}</p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {template.fields?.length ?? 0} field{(template.fields?.length ?? 0) !== 1 ? "s" : ""}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => editTemplate(template)}
-                          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void duplicateTemplate(template)}
-                          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
-                        >
-                          Duplicate
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void viewResponses(template.id)}
-                          className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
-                        >
-                          Responses
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void archiveTemplate(template)}
-                          className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
-                        >
-                          Archive
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
               </div>
             </section>
 

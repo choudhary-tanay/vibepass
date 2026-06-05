@@ -83,9 +83,45 @@ async function loadTemplates(supabase: SupabaseClient, businessId: string) {
     fieldsByTemplate.set(key, [...(fieldsByTemplate.get(key) ?? []), field]);
   }
 
+  const [{ data: classLinks, error: classLinksError }, { data: responses, error: responsesError }] =
+    await Promise.all([
+      templateIds.length > 0
+        ? supabase
+            .from("class_booking_forms")
+            .select("template_id, class_id")
+            .eq("business_id", businessId)
+            .in("template_id", templateIds)
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("booking_form_responses")
+        .select("class_id")
+        .eq("business_id", businessId),
+    ]);
+  if (classLinksError && !isAccessSchemaMissing(classLinksError)) throw classLinksError;
+  if (responsesError && !isAccessSchemaMissing(responsesError)) throw responsesError;
+
+  const classIdsByTemplate = new Map<string, Set<string>>();
+  for (const link of classLinks ?? []) {
+    const templateId = String(link.template_id);
+    const classIds = classIdsByTemplate.get(templateId) ?? new Set<string>();
+    classIds.add(String(link.class_id));
+    classIdsByTemplate.set(templateId, classIds);
+  }
+
+  const responseCountByClass = new Map<string, number>();
+  for (const response of responses ?? []) {
+    const classId = String(response.class_id);
+    responseCountByClass.set(classId, (responseCountByClass.get(classId) ?? 0) + 1);
+  }
+
   return (templates ?? []).map((template: { id: string }) => ({
     ...template,
     fields: fieldsByTemplate.get(template.id) ?? [],
+    classesUsingCount: classIdsByTemplate.get(template.id)?.size ?? 0,
+    responseCount: [...(classIdsByTemplate.get(template.id) ?? new Set<string>())].reduce(
+      (sum, classId) => sum + (responseCountByClass.get(classId) ?? 0),
+      0
+    ),
   }));
 }
 

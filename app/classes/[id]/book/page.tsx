@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
-import { isFutureDate } from "@/lib/utils";
+import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
+import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 import BookingForm from "./BookingForm";
 
 export default function BookClassPage() {
@@ -82,11 +83,12 @@ export default function BookClassPage() {
   }
 
   const business = businesses.find((b) => b.id === cls.businessId);
-  const businessName = business?.businessName ?? "Unknown Business";
+  const businessName = business?.publicDisplayName ?? business?.businessName ?? "Unknown Business";
+  const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 sm:py-10">
-      <div className="mx-auto max-w-xl">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-6xl">
         <Link
           href={`/classes/${cls.id}`}
           className="mb-6 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -94,12 +96,72 @@ export default function BookClassPage() {
           ← Back to Class Details
         </Link>
 
-        <div className="mb-6">
-          <h1 className="text-2xl font-black text-slate-950">Book your spot</h1>
-          <p className="mt-1 text-slate-500">{cls.title} · {businessName}</p>
-        </div>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,0.86fr)] lg:items-start">
+          <section className="overflow-hidden rounded-[2rem] bg-white shadow-sm">
+            <div className="relative min-h-80">
+              {cls.imageUrl ? (
+                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
+              ) : (
+                <ClassImageTemplate
+                  title={cls.title}
+                  category={cls.category}
+                  instructorName={cls.instructorName}
+                  className="absolute inset-0 h-full w-full rounded-none"
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-6">
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black uppercase text-white backdrop-blur-sm">{cls.category}</span>
+                  <span className="rounded-full bg-emerald-400 px-3 py-1 text-xs font-black text-emerald-950">{seatsLeft} seats left</span>
+                </div>
+                <h1 className="mt-3 text-3xl font-black leading-tight text-white sm:text-4xl">{cls.title}</h1>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-white/85">{cls.tagline || cls.description}</p>
+              </div>
+            </div>
 
-        <BookingForm cls={cls} businessName={businessName} businessId={cls.businessId} />
+            <div className="grid gap-0 border-t border-slate-100 sm:grid-cols-4">
+              <div className="border-b border-slate-100 p-4 sm:border-b-0 sm:border-r">
+                <p className="text-xs font-black uppercase text-slate-400">Date</p>
+                <p className="mt-1 font-black text-slate-950">{formatDate(cls.date)}</p>
+              </div>
+              <div className="border-b border-slate-100 p-4 sm:border-b-0 sm:border-r">
+                <p className="text-xs font-black uppercase text-slate-400">Time</p>
+                <p className="mt-1 font-black text-slate-950">{formatTime(cls.startTime)} - {formatTime(cls.endTime)}</p>
+              </div>
+              <div className="border-b border-slate-100 p-4 sm:border-b-0 sm:border-r">
+                <p className="text-xs font-black uppercase text-slate-400">Location</p>
+                <p className="mt-1 truncate font-black text-slate-950">{cls.location}</p>
+              </div>
+              <div className="p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Price</p>
+                <p className="mt-1 font-black text-slate-950">{cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}</p>
+              </div>
+            </div>
+
+            <div className="grid gap-5 p-5 md:grid-cols-[1fr_0.75fr]">
+              <div>
+                <p className="text-sm font-black text-slate-950">About this class</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{cls.description || "Complete the booking details to reserve your seat."}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase text-slate-400">Instructor</p>
+                <p className="mt-1 font-black text-slate-950">{cls.instructorName || "Instructor"}</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">{businessName}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[2rem] bg-white p-5 shadow-sm lg:sticky lg:top-6">
+            <div className="mb-5">
+              <h2 className="text-2xl font-black text-slate-950">Book your spot</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Secure your seat and add guest details if you are booking for more than one person.
+              </p>
+            </div>
+            <BookingForm cls={cls} businessName={businessName} businessId={cls.businessId} />
+          </section>
+        </div>
       </div>
     </main>
   );

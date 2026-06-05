@@ -96,9 +96,9 @@ export default function DataTable({
   const toggleableColumns = columns.filter((c) => !c.fixed);
 
   return (
-    <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+    <div className="rounded-2xl bg-white shadow-sm">
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
+      <div className="relative z-20 flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3">
         {/* Search */}
         {onSearchQuery && (
           <div className="relative min-w-[160px] flex-1 max-w-xs">
@@ -156,7 +156,7 @@ export default function DataTable({
               </button>
 
               {customizerOpen && (
-                <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-gray-200 bg-white p-3 shadow-xl">
+                <div className="absolute right-0 top-full z-[9999] mt-1.5 w-52 rounded-2xl border border-gray-200 bg-white p-3 shadow-xl">
                   <div className="mb-2.5 flex items-center justify-between">
                     <p className="text-xs font-black uppercase tracking-wide text-gray-400">
                       Visible columns
@@ -198,7 +198,7 @@ export default function DataTable({
           Loading…
         </div>
       ) : (
-        <div className="overflow-x-auto">{children(visibleKeys)}</div>
+        <div className="overflow-x-auto rounded-b-2xl">{children(visibleKeys)}</div>
       )}
 
       {/* ── Empty state ── */}

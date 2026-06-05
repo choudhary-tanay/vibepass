@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
+import { OwnerPageHeader } from "@/components/OwnerUI";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,7 @@ interface CustomerDetail {
   bookings?: Array<{ id: string; classTitle?: string; bookingStatus?: string; paymentStatus?: string; amount?: number }>;
   attendees?: Array<{ id: string; attendee_name?: string; attendee_email?: string | null; attendee_type?: string; attendance_status?: string | null }>;
   linkedIdentities?: Array<{ id: string; identity_type?: string; identity_value?: string; normalized_value?: string }>;
+  formResponses?: Array<{ id: string; booking_id?: string; field_label?: string; response_value?: string | number | boolean | null }>;
   refundHistory?: Array<{ id: string; refund_status?: string; refund_amount?: number; retained_amount?: number }>;
 }
 
@@ -76,21 +78,24 @@ function CustomerSlideOver({
 
   useEffect(() => {
     let active = true;
-    setDetail(null);
-    setDetailError(null);
-    fetch(`/api/owner/customers/${customer.id}?businessId=${businessId}`)
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
-        if (!active) return;
-        if (!response.ok) {
-          setDetailError(data.error ?? "Customer detail could not be loaded.");
-          return;
-        }
-        setDetail(data);
-      })
-      .catch(() => {
-        if (active) setDetailError("Customer detail could not be loaded.");
-      });
+    queueMicrotask(() => {
+      if (!active) return;
+      setDetail(null);
+      setDetailError(null);
+      fetch(`/api/owner/customers/${customer.id}?businessId=${businessId}`)
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!active) return;
+          if (!response.ok) {
+            setDetailError(data.error ?? "Customer detail could not be loaded.");
+            return;
+          }
+          setDetail(data);
+        })
+        .catch(() => {
+          if (active) setDetailError("Customer detail could not be loaded.");
+        });
+    });
     return () => {
       active = false;
     };
@@ -122,7 +127,7 @@ function CustomerSlideOver({
             <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
               Customer Detail
             </p>
-            <h2 className="mt-1 text-xl font-black text-slate-900">{customer.name}</h2>
+            <h2 className="mt-1 text-xl font-black text-slate-900">{customer.name || "Unknown customer"}</h2>
           </div>
           <button
             onClick={onClose}
@@ -156,7 +161,7 @@ function CustomerSlideOver({
                 Email
               </dt>
               <dd className="mt-0.5 break-all text-sm font-medium text-gray-900">
-                {customer.email || "—"}
+                {customer.email || "Unknown email"}
               </dd>
             </div>
             <div className="rounded-2xl bg-gray-50 px-4 py-3">
@@ -164,7 +169,7 @@ function CustomerSlideOver({
                 Phone
               </dt>
               <dd className="mt-0.5 text-sm font-medium text-gray-900">
-                {customer.phone || "—"}
+                {customer.phone || "Unknown phone"}
               </dd>
             </div>
             <div className="rounded-2xl bg-gray-50 px-4 py-3">
@@ -257,6 +262,26 @@ function CustomerSlideOver({
                   </div>
                 </section>
 
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
+                    Form responses
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {(detail.formResponses ?? []).length === 0 ? (
+                      <p className="text-sm text-gray-400">No form responses yet.</p>
+                    ) : (
+                      (detail.formResponses ?? []).slice(0, 10).map((response) => (
+                        <div key={response.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                          <p className="font-bold text-gray-800">{response.field_label ?? "Question"}</p>
+                          <p className="text-xs text-gray-500">
+                            {String(response.response_value ?? "No response")}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
                 {(detail.refundHistory ?? []).length > 0 && (
                   <section>
                     <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
@@ -301,6 +326,7 @@ export default function OwnerCustomersPage() {
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [selected, setSelected] = useState<Customer | null>(null);
+  const [retentionFilter, setRetentionFilter] = useState<"all" | RetentionStatus>("all");
 
   // Debounce search input
   useEffect(() => {
@@ -314,6 +340,7 @@ export default function OwnerCustomersPage() {
   // Fetch customers whenever businessId, page, or search changes
   useEffect(() => {
     if (!currentBusiness) return;
+    let active = true;
 
     const params = new URLSearchParams({
       businessId: currentBusiness.id,
@@ -324,23 +351,34 @@ export default function OwnerCustomersPage() {
       params.set("search", debouncedSearch.trim());
     }
 
-    setFetchLoading(true);
-    setError(null);
-    setWarning(null);
+    queueMicrotask(() => {
+      if (!active) return;
+      setFetchLoading(true);
+      setError(null);
+      setWarning(null);
 
-    fetch(`/api/owner/customers?${params.toString()}`)
-      .then(async (res) => {
-        const data: CustomersResponse = await res.json();
-        if (!res.ok) {
-          setError((data as { error?: string }).error ?? "Failed to load customers.");
-          return;
-        }
-        setCustomers(data.customers ?? []);
-        setTotal(data.total ?? 0);
-        if (data.warning) setWarning(data.warning);
-      })
-      .catch(() => setError("Network error — could not load customers."))
-      .finally(() => setFetchLoading(false));
+      fetch(`/api/owner/customers?${params.toString()}`)
+        .then(async (res) => {
+          const data: CustomersResponse = await res.json();
+          if (!active) return;
+          if (!res.ok) {
+            setError((data as { error?: string }).error ?? "Failed to load customers.");
+            return;
+          }
+          setCustomers(data.customers ?? []);
+          setTotal(data.total ?? 0);
+          if (data.warning) setWarning(data.warning);
+        })
+        .catch(() => {
+          if (active) setError("Network error — could not load customers.");
+        })
+        .finally(() => {
+          if (active) setFetchLoading(false);
+        });
+    });
+    return () => {
+      active = false;
+    };
   }, [currentBusiness?.id, page, debouncedSearch]);
 
   // ---------------------------------------------------------------------------
@@ -348,6 +386,9 @@ export default function OwnerCustomersPage() {
   // ---------------------------------------------------------------------------
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const visibleCustomers = customers.filter((customer) =>
+    retentionFilter === "all" ? true : customer.retentionStatus === retentionFilter
+  );
 
   function formatDate(iso: string | null) {
     if (!iso) return "—";
@@ -380,24 +421,23 @@ export default function OwnerCustomersPage() {
     <>
       <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-6xl">
-          {/* Page header panel */}
-          <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm">
-            <Link
-              href="/owner/dashboard"
-              className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-            >
-              ← Dashboard
-            </Link>
-            <p className="text-sm font-bold uppercase tracking-wide text-indigo-600">
-              Customers
-            </p>
-            <h1 className="mt-1 text-3xl font-black text-slate-950">Customer Management</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              {total > 0
+          <OwnerPageHeader
+            eyebrow="Customers"
+            title="Customer Management"
+            description={
+              total > 0
                 ? `${total} customer${total !== 1 ? "s" : ""} across all bookings`
-                : "Manage and review your customer base."}
-            </p>
-          </div>
+                : "Manage and review your customer base."
+            }
+            primaryAction={
+              <Link
+                href="/owner/bookings"
+                className="rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
+              >
+                View bookings
+              </Link>
+            }
+          />
 
           {/* Missing-table info banner */}
           {warning && (
@@ -421,9 +461,9 @@ export default function OwnerCustomersPage() {
           )}
 
           {/* Main content panel */}
-          <div className="rounded-3xl bg-white shadow-sm">
+          <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
             {/* Toolbar */}
-            <div className="flex items-center gap-3 border-b border-gray-100 px-6 py-4">
+            <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3">
               <div className="relative flex-1 max-w-sm">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -450,6 +490,20 @@ export default function OwnerCustomersPage() {
               {fetchLoading && (
                 <span className="text-xs text-gray-400">Loading...</span>
               )}
+              <select
+                value={retentionFilter}
+                onChange={(event) => setRetentionFilter(event.target.value as "all" | RetentionStatus)}
+                className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-200"
+              >
+                <option value="all">All retention</option>
+                <option value="new">New</option>
+                <option value="repeat">Repeat</option>
+                <option value="at_risk">At risk</option>
+                <option value="churned">Churned</option>
+              </select>
+              <span className="ml-auto text-xs text-gray-400">
+                {visibleCustomers.length} shown
+              </span>
             </div>
 
             {/* Error state */}
@@ -466,7 +520,7 @@ export default function OwnerCustomersPage() {
             )}
 
             {/* Empty state */}
-            {!error && !fetchLoading && customers.length === 0 && (
+            {!error && !fetchLoading && visibleCustomers.length === 0 && (
               <div className="px-6 py-16 text-center">
                 <p className="text-lg font-medium text-gray-700">
                   {debouncedSearch ? "No customers match your search." : "No customers yet."}
@@ -488,7 +542,7 @@ export default function OwnerCustomersPage() {
             )}
 
             {/* Table — desktop */}
-            {!error && customers.length > 0 && (
+            {!error && visibleCustomers.length > 0 && (
               <>
                 <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-sm">
@@ -518,16 +572,16 @@ export default function OwnerCustomersPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {customers.map((c) => (
+                      {visibleCustomers.map((c) => (
                         <tr
                           key={c.id}
                           className="hover:bg-indigo-50/30 transition-colors"
                         >
                           <td className="px-6 py-4">
-                            <p className="font-medium text-gray-900">{c.name}</p>
+                            <p className="font-medium text-gray-900">{c.name || "Unknown customer"}</p>
                           </td>
-                          <td className="px-6 py-4 text-gray-600">{c.email || "—"}</td>
-                          <td className="px-4 py-4 text-gray-600">{c.phone || "—"}</td>
+                          <td className="px-6 py-4 text-gray-600">{c.email || "Unknown email"}</td>
+                          <td className="px-4 py-4 text-gray-600">{c.phone || "Unknown phone"}</td>
                           <td className="px-4 py-4 text-right font-semibold text-gray-900">
                             {c.totalBookings}
                           </td>
@@ -553,15 +607,13 @@ export default function OwnerCustomersPage() {
 
                 {/* Card list — mobile */}
                 <div className="divide-y divide-gray-100 sm:hidden">
-                  {customers.map((c) => (
+                  {visibleCustomers.map((c) => (
                     <div key={c.id} className="px-5 py-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-semibold text-gray-900">{c.name}</p>
-                          <p className="truncate text-xs text-gray-500">{c.email || "—"}</p>
-                          {c.phone && (
-                            <p className="text-xs text-gray-400">{c.phone}</p>
-                          )}
+                          <p className="truncate font-semibold text-gray-900">{c.name || "Unknown customer"}</p>
+                          <p className="truncate text-xs text-gray-500">{c.email || "Unknown email"}</p>
+                          <p className="text-xs text-gray-400">{c.phone || "Unknown phone"}</p>
                         </div>
                         <RetentionBadge status={c.retentionStatus} />
                       </div>

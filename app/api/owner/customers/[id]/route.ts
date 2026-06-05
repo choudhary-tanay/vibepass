@@ -123,7 +123,8 @@ export async function GET(
       marketingConsent: (b.marketing_consent as boolean | null) ?? null,
     }));
 
-    const [{ data: identities }, { data: attendees }, { data: refunds }] = await Promise.all([
+    const bookingIdsForProfile = bookings.map((booking) => booking.id);
+    const [{ data: identities }, { data: attendees }, { data: refunds }, formResponsesResult] = await Promise.all([
       supabase
         .from("customer_identity_links")
         .select("id, identity_type, identity_value, normalized_value, verified, source, created_at")
@@ -138,13 +139,20 @@ export async function GET(
         .from("booking_refunds")
         .select("id, booking_id, refund_status, refund_amount, retained_amount, refund_rule_label, cancelled_by, created_at")
         .eq("business_id", businessId),
+      bookingIdsForProfile.length > 0
+        ? supabase
+            .from("booking_form_responses")
+            .select("id, booking_id, field_label, response_value, created_at")
+            .eq("business_id", businessId)
+            .in("booking_id", bookingIdsForProfile)
+        : Promise.resolve({ data: [], error: null }),
     ]);
 
     const bookingIdSet = new Set(bookings.map((booking) => booking.id));
     const profile = {
       id: String(profileRow.id),
       businessId: String(profileRow.business_id),
-      name: (profileRow.primary_name as string | null) ?? "Guest customer",
+      name: (profileRow.primary_name as string | null) ?? "Unknown customer",
       email: customerEmail ?? "",
       phone: customerPhone ?? "",
       lastBookingDate: (profileRow.last_booking_at as string | null) ?? null,
@@ -174,6 +182,7 @@ export async function GET(
       attendanceHistory: attendees ?? [],
       guestHistory: (attendees ?? []).filter((attendee) => attendee.attendee_type === "guest"),
       linkedIdentities: identities ?? [],
+      formResponses: formResponsesResult.data ?? [],
       refundHistory: (refunds ?? []).filter((refund) => bookingIdSet.has(refund.booking_id)),
       notes: [],
       source: "customer_profiles",
@@ -183,17 +192,18 @@ export async function GET(
   // --- Path B: derive from bookings ---
   // When customer_profiles table is missing, the id is expected to be
   // "derived-<email>" (as returned by the list endpoint). Accept both forms.
-  let lookupEmail: string;
+  let lookupValue: string;
   if (id.startsWith("derived-")) {
-    lookupEmail = id.slice("derived-".length);
+    lookupValue = id.slice("derived-".length);
   } else {
-    // Treat the id as a raw email (URL-decoded)
-    lookupEmail = decodeURIComponent(id);
+    lookupValue = decodeURIComponent(id);
   }
 
-  if (!lookupEmail || !lookupEmail.includes("@")) {
+  if (!lookupValue) {
     return Response.json({ error: "Customer not found." }, { status: 404 });
   }
+
+  const lookupField = lookupValue.includes("@") ? "customer_email" : "customer_phone";
 
   const { data: bookingsData, error: bookingsError } = await supabase
     .from("bookings")
@@ -201,7 +211,7 @@ export async function GET(
       "id, class_id, customer_name, customer_email, customer_phone, booking_status, payment_status, amount, created_at, age_range, gender, experience_level, goals, health_note, marketing_consent"
     )
     .eq("business_id", businessId)
-    .eq("customer_email", lookupEmail)
+    .eq(lookupField, lookupValue)
     .order("created_at", { ascending: false });
 
   if (bookingsError) {
@@ -244,8 +254,8 @@ export async function GET(
     name:
       (lastBooking.customer_name as string | null) ??
       (firstBooking.customer_name as string | null) ??
-      "Guest customer",
-    email: lookupEmail,
+      "Unknown customer",
+    email: lookupField === "customer_email" ? lookupValue : ((lastBooking.customer_email as string | null) ?? ""),
     phone:
       (lastBooking.customer_phone as string | null) ??
       (firstBooking.customer_phone as string | null) ??
@@ -255,7 +265,7 @@ export async function GET(
       (lastBooking.customer_name as string | null) ??
       (firstBooking.customer_name as string | null) ??
       null,
-    customerEmail: lookupEmail,
+    customerEmail: lookupField === "customer_email" ? lookupValue : ((lastBooking.customer_email as string | null) ?? null),
     customerPhone:
       (lastBooking.customer_phone as string | null) ??
       (firstBooking.customer_phone as string | null) ??
@@ -286,9 +296,23 @@ export async function GET(
     marketingConsent: (b.marketing_consent as boolean | null) ?? null,
   }));
 
+  const bookingIds = bookings.map((booking) => booking.id);
+  const { data: formResponses } = bookingIds.length > 0
+    ? await supabase
+        .from("booking_form_responses")
+        .select("id, booking_id, field_label, response_value, created_at")
+        .eq("business_id", businessId)
+        .in("booking_id", bookingIds)
+    : { data: [] };
+
   return Response.json({
     customer: derivedProfile,
     bookings,
+    attendanceHistory: [],
+    guestHistory: [],
+    linkedIdentities: [],
+    formResponses: formResponses ?? [],
+    refundHistory: [],
     source: "bookings_derived",
   });
 }

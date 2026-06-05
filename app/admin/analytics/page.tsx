@@ -429,9 +429,9 @@ export default function AdminAnalyticsPage() {
 
             {personalization.genderCounts.length > 0 && (
               <div className="mt-5 flex flex-wrap gap-2 rounded-[1.5rem] bg-white/70 p-4 dark:bg-slate-950/40">
-                {personalization.genderCounts.map((item) => (
+                {personalization.genderCounts.map((item, index) => (
                   <span
-                    key={item.label}
+                    key={`${item.label}-${index}`}
                     className="rounded-full bg-teal-100 px-3 py-1 text-xs font-black text-teal-700 dark:bg-teal-950/50 dark:text-teal-200"
                   >
                     {item.label}: {item.value}
