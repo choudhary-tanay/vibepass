@@ -1,10 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
+import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
+
+const COLUMNS: ColDef[] = [
+  { key: "class", label: "Class", fixed: true },
+  { key: "date", label: "Class Date" },
+  { key: "booking", label: "Booking" },
+  { key: "payment", label: "Payment" },
+  { key: "amount", label: "Amount" },
+  { key: "bookedOn", label: "Booked On", defaultHidden: true },
+  { key: "actions", label: "Actions", fixed: true },
+];
+
+function PaymentBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    paid: "bg-green-100 text-green-700",
+    pending: "bg-yellow-100 text-yellow-700",
+    failed: "bg-red-100 text-red-600",
+    refunded: "bg-slate-100 text-slate-500",
+    free: "bg-slate-100 text-slate-500",
+  };
+  return (
+    <span
+      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
+        styles[status] ?? "bg-gray-100 text-gray-500"
+      }`}
+    >
+      {status}
+    </span>
+  );
+}
 
 function BookingStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -25,10 +55,14 @@ function BookingStatusBadge({ status }: { status: string }) {
 }
 
 export default function CustomerBookingsPage() {
-  const { user, bookings, classes, cancelBooking, loading } = useAppStore();
+  const { user, bookings, classes, loading } = useAppStore();
   const router = useRouter();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelSuccessMap, setCancelSuccessMap] = useState<Record<string, { refundAmount: number | null }>>({});
+  const [cancelErrorMap, setCancelErrorMap] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   if (loading) {
     return (
@@ -61,33 +95,35 @@ export default function CustomerBookingsPage() {
   }
 
   // Customers only see bookings where their email matches (enforced by RLS)
-  const myBookings = bookings.filter(
-    (b) => b.customerEmail === user.email
-  );
+  const myBookings = bookings.filter((b) => b.customerEmail === user.email);
 
   function getClass(classId: string) {
     return classes.find((c) => c.id === classId);
   }
 
-  const upcoming = myBookings.filter((b) => {
-    const cls = getClass(b.classId);
-    return b.bookingStatus === "confirmed" && cls && isFutureDate(cls.date);
-  });
-
-  const past = myBookings.filter((b) => {
-    const cls = getClass(b.classId);
-    const isUpcoming =
-      b.bookingStatus === "confirmed" && cls && isFutureDate(cls.date);
-    return !isUpcoming;
-  });
-
-  async function handleCancel(bookingId: string, classId: string) {
+  async function handleCancel(bookingId: string) {
     setCancellingId(bookingId);
     setCancelError(null);
-    const result = await cancelBooking(bookingId, classId);
-    setCancellingId(null);
-    if (!result.success) {
-      setCancelError(result.error ?? "Failed to cancel booking.");
+    setCancelErrorMap((prev) => { const next = { ...prev }; delete next[bookingId]; return next; });
+    try {
+      const res = await fetch(`/api/customer/bookings/${bookingId}/cancel`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCancelSuccessMap((prev) => ({
+          ...prev,
+          [bookingId]: { refundAmount: data.refundAmount ?? null },
+        }));
+      } else {
+        const msg = data.error ?? data.message ?? "Failed to cancel booking.";
+        setCancelErrorMap((prev) => ({ ...prev, [bookingId]: msg }));
+        setCancelError(msg);
+      }
+    } catch {
+      const msg = "Failed to cancel booking.";
+      setCancelErrorMap((prev) => ({ ...prev, [bookingId]: msg }));
+      setCancelError(msg);
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -99,9 +135,52 @@ export default function CustomerBookingsPage() {
     });
   }
 
+  function isUpcomingBooking(b: (typeof myBookings)[number]) {
+    const cls = getClass(b.classId);
+    return b.bookingStatus === "confirmed" && cls && isFutureDate(cls.date);
+  }
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const filtered = useMemo(() => {
+    let list = myBookings;
+    if (statusFilter !== "all") {
+      if (statusFilter === "upcoming") {
+        list = list.filter((b) => isUpcomingBooking(b));
+      } else if (statusFilter === "past") {
+        list = list.filter((b) => !isUpcomingBooking(b));
+      } else {
+        list = list.filter((b) => b.bookingStatus === statusFilter);
+      }
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((b) => {
+        const cls = getClass(b.classId);
+        return cls?.title.toLowerCase().includes(q);
+      });
+    }
+    return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myBookings, statusFilter, search]);
+
+  const toolbar = (
+    <select
+      value={statusFilter}
+      onChange={(e) => setStatusFilter(e.target.value)}
+      className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 outline-none"
+    >
+      <option value="all">All bookings</option>
+      <option value="upcoming">Upcoming</option>
+      <option value="past">Past & Cancelled</option>
+      <option value="confirmed">Confirmed</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="pending">Pending</option>
+    </select>
+  );
+
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         {/* Header */}
         <div className="mb-8">
           <Link
@@ -122,112 +201,10 @@ export default function CustomerBookingsPage() {
           </div>
         )}
 
-        {/* Upcoming */}
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">
-            Upcoming ({upcoming.length})
-          </h2>
-          {upcoming.length === 0 ? (
-            <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
-              <p className="text-gray-500">No upcoming bookings.</p>
-              <Link
-                href="/classes"
-                className="mt-3 inline-block text-sm text-blue-600 hover:text-blue-700"
-              >
-                Browse classes →
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {upcoming.map((b) => {
-                const cls = getClass(b.classId);
-                const isCancelling = cancellingId === b.id;
-                return (
-                  <div
-                    key={b.id}
-                    className="rounded-2xl bg-white p-5 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">
-                          {cls?.title ?? "Unknown Class"}
-                        </p>
-                        {cls && (
-                          <p className="mt-0.5 text-sm text-gray-500">
-                            {formatDate(cls.date)} · {formatTime(cls.startTime)} –{" "}
-                            {formatTime(cls.endTime)}
-                          </p>
-                        )}
-                        {cls && (
-                          <p className="text-sm text-gray-400">{cls.location}</p>
-                        )}
-                        <p className="mt-2 text-xs text-gray-400">
-                          Booked on {formatBooked(b.createdAt)}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <BookingStatusBadge status={b.bookingStatus} />
-                        <button
-                          onClick={() =>
-                            cls && handleCancel(b.id, cls.id)
-                          }
-                          disabled={isCancelling}
-                          className="text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
-                        >
-                          {isCancelling ? "Cancelling..." : "Cancel booking"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Past / Cancelled */}
-        {past.length > 0 && (
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">
-              Past & Cancelled ({past.length})
-            </h2>
-            <div className="space-y-3">
-              {past.map((b) => {
-                const cls = getClass(b.classId);
-                return (
-                  <div
-                    key={b.id}
-                    className="rounded-2xl bg-white p-5 opacity-75 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-700">
-                          {cls?.title ?? "Unknown Class"}
-                        </p>
-                        {cls && (
-                          <p className="mt-0.5 text-sm text-gray-500">
-                            {formatDate(cls.date)} · {formatTime(cls.startTime)}
-                          </p>
-                        )}
-                        <p className="mt-2 text-xs text-gray-400">
-                          Booked on {formatBooked(b.createdAt)}
-                        </p>
-                      </div>
-                      <BookingStatusBadge status={b.bookingStatus} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {myBookings.length === 0 && (
+        {myBookings.length === 0 ? (
           <div className="rounded-2xl bg-white p-12 text-center shadow-sm">
             <p className="text-lg font-medium text-gray-700">No bookings yet.</p>
-            <p className="mt-1 text-gray-500">
-              Browse classes and make your first booking.
-            </p>
+            <p className="mt-1 text-gray-500">Browse classes and make your first booking.</p>
             <Link
               href="/classes"
               className="mt-6 inline-block rounded-full bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -235,6 +212,128 @@ export default function CustomerBookingsPage() {
               Browse Classes
             </Link>
           </div>
+        ) : (
+          <DataTable
+            tableId="customer-bookings"
+            columns={COLUMNS}
+            searchQuery={search}
+            onSearchQuery={setSearch}
+            searchPlaceholder="Search by class name..."
+            toolbar={toolbar}
+            summary={`${filtered.length} of ${myBookings.length}`}
+            emptyState={
+              filtered.length === 0 ? (
+                <div className="py-12 text-center text-sm text-gray-400">
+                  No bookings match this filter.
+                </div>
+              ) : undefined
+            }
+          >
+            {(vis) => (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    {vis.has("class") && <Th>Class</Th>}
+                    {vis.has("date") && <Th>Class Date</Th>}
+                    {vis.has("booking") && <Th>Booking</Th>}
+                    {vis.has("payment") && <Th>Payment</Th>}
+                    {vis.has("amount") && <Th>Amount</Th>}
+                    {vis.has("bookedOn") && <Th>Booked On</Th>}
+                    {vis.has("actions") && <Th>Actions</Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((b) => {
+                    const cls = getClass(b.classId);
+                    const upcoming = isUpcomingBooking(b);
+                    const isCancelling = cancellingId === b.id;
+                    return (
+                      <tr
+                        key={b.id}
+                        className={`hover:bg-gray-50 ${!upcoming ? "opacity-75" : ""}`}
+                      >
+                        {vis.has("class") && (
+                          <Td>
+                            <p className="font-semibold text-gray-900">
+                              {cls?.title ?? "Unknown Class"}
+                            </p>
+                            {cls?.location && (
+                              <p className="text-xs text-gray-400">{cls.location}</p>
+                            )}
+                          </Td>
+                        )}
+                        {vis.has("date") && (
+                          <Td className="text-gray-600 whitespace-nowrap">
+                            {cls ? (
+                              <>
+                                <p>{formatDate(cls.date)}</p>
+                                <p className="text-xs text-gray-400">
+                                  {formatTime(cls.startTime)} – {formatTime(cls.endTime)}
+                                </p>
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </Td>
+                        )}
+                        {vis.has("booking") && (
+                          <Td>
+                            <BookingStatusBadge status={b.bookingStatus} />
+                          </Td>
+                        )}
+                        {vis.has("payment") && (
+                          <Td>
+                            <PaymentBadge status={b.paymentStatus} />
+                          </Td>
+                        )}
+                        {vis.has("amount") && (
+                          <Td className="text-gray-700 font-medium">
+                            {b.amount === 0 ? "Free" : `₹${b.amount.toLocaleString("en-IN")}`}
+                          </Td>
+                        )}
+                        {vis.has("bookedOn") && (
+                          <Td className="text-xs text-gray-400 whitespace-nowrap">
+                            {formatBooked(b.createdAt)}
+                          </Td>
+                        )}
+                        {vis.has("actions") && (
+                          <Td>
+                            {cancelSuccessMap[b.id] ? (
+                              <span className="text-xs font-semibold text-emerald-600">
+                                Cancelled{cancelSuccessMap[b.id].refundAmount != null && cancelSuccessMap[b.id].refundAmount! > 0
+                                  ? ` — Refund: ₹${cancelSuccessMap[b.id].refundAmount!.toLocaleString("en-IN")}`
+                                  : ""}
+                              </span>
+                            ) : cancelErrorMap[b.id] ? (
+                              <span className="text-xs text-red-500">{cancelErrorMap[b.id]}</span>
+                            ) : upcoming ? (
+                              <button
+                                onClick={() => handleCancel(b.id)}
+                                disabled={isCancelling}
+                                className="text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
+                              >
+                                {isCancelling ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                    </svg>
+                                    Cancelling...
+                                  </span>
+                                ) : (
+                                  "Cancel"
+                                )}
+                              </button>
+                            ) : null}
+                          </Td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </DataTable>
         )}
       </div>
     </main>

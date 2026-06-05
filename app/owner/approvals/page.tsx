@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
 import Link from "next/link";
 import { formatDate, formatTime } from "@/lib/utils";
+import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 
 interface PendingClass {
   id: string;
@@ -34,6 +35,7 @@ function StatusBadge({ status }: { status: "approved" | "rejected" | null }) {
 
 export default function OwnerApprovalsPage() {
   const { currentBusiness } = useAppStore();
+  const bizCurrency = getOperatingCurrency(currentBusiness);
   const [classes, setClasses] = useState<PendingClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [decisions, setDecisions] = useState<
@@ -159,7 +161,7 @@ export default function OwnerApprovalsPage() {
                       <span>Instructor: {cls.instructor_name}</span>
                       <span>Capacity: {cls.capacity}</span>
                       <span>
-                        {cls.price === 0 ? "Free" : `₹${cls.price}`}
+                        {cls.price === 0 ? "Free" : formatCurrency(cls.price, bizCurrency)}
                       </span>
                     </div>
                   </div>

@@ -178,6 +178,25 @@ Use this checklist after bug fixes or before staging deployment decisions.
 - [ ] Owner staff invite works.
 - [ ] Accepted staff appears in owner staff list.
 
+### NF-0F Finance Source Of Truth
+
+- [ ] Run `supabase/nf0f-finance-snapshots.sql`.
+- [ ] Backfill an existing business with `POST /api/finance/recalculate/business/[businessId]`.
+- [ ] Create class with price, capacity, staff commission, fixed staff cost, venue cost, expense, tax, and sponsor.
+- [ ] Confirm class create preview uses business operating currency only.
+- [ ] Confirm `expectedBookings = 0` previews zero estimated revenue.
+- [ ] Confirm `class_financial_snapshots` updates after class save.
+- [ ] Create a dummy paid booking.
+- [ ] Confirm `booking_financial_snapshots` stores booking-time margin/fee/tax/commission.
+- [ ] Confirm `class_financial_snapshots.gross_revenue`, `platform_fee`, `staff_commission`, `sponsor_income`, `net_profit`, and `break_even_bookings`.
+- [ ] Confirm `staff_earning_snapshots` updates for assigned staff.
+- [ ] Mark staff payout paid and confirm paid/unpaid/status changes.
+- [ ] Set platform margin to 0% and confirm platform fee stays 0 for future bookings.
+- [ ] Confirm old booking snapshots do not mutate after platform margin changes.
+- [ ] Confirm Owner Dashboard, Owner Classes, Owner Analytics, Staff Dashboard, and Staff Classes prefer snapshot/API values.
+- [ ] Confirm Owner/Staff portals show only business operating currency.
+- [ ] Confirm Admin finance/reporting still loads with old SQL views as fallback.
+
 ### Staff
 
 - [ ] Staff invite entry route behaves correctly.
@@ -432,6 +451,79 @@ This section maps each new feature phase to the QA work it will require. Update 
 | Profile share link | Share link generates and opens correct public profile URL | Manual |
 | Owner schedule calendar | Owner sees all staff assignments in a calendar | Manual |
 
+### Phase NF-0B: Revenue Split, Commission, Staff Payouts
+
+Run after `supabase/nf0b-revenue-split-payouts.sql` is applied.
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Booking revenue calculation | Confirmed+paid dummy bookings count as earned revenue; free bookings produce zero revenue | API + DB |
+| Cancelled booking exclusion | Cancelled bookings do not contribute to gross, platform, owner net, or staff earning | API + DB |
+| Refunded booking exclusion | `payment_status = refunded` or non-paid state does not count toward earned revenue | API + DB |
+| Platform margin update | Admin changes margin from 10% to 15%; admin/owner/staff split views recalculate consistently | API + Browser |
+| Percentage commission | Paid class with 3 x ₹1000 bookings and 20% staff commission yields ₹600 staff earning | API + DB |
+| Fixed commission | Paid class with 3 x ₹1000 bookings and ₹100 fixed commission yields ₹300 staff earning | API + DB |
+| Multiple instructors | Each `class_staff` row calculates independently; totals sum correctly; owner net subtracts all staff earnings | API + DB |
+| Staff payout marking | Owner records a payout; paid amount, unpaid balance, and payout status update | API + Browser |
+| Partial payout | ₹1000 earned, ₹400 paid -> `partially_paid`, balance ₹600 | API + Browser |
+| Overpayment prevention | Owner cannot record amount greater than current unpaid balance | API |
+| Admin visibility | Admin sees gross revenue, platform earning, staff commission, owner net, and payout data | Browser |
+| Owner visibility | Owner sees only own business revenue and can pay only own staff assignments | API + Browser |
+| Staff visibility | Staff sees only own earnings/payout status on dashboard/classes/profile | Browser |
+| Customer non-visibility | Customer pages do not display margin, staff commission, owner net, or payout details | Browser |
+| Negative owner net warning | If platform fee + staff commissions exceed gross revenue, owner/admin UI shows negative net clearly | Browser |
+
+### Phase NF-1: Access And Operations Foundation
+
+Run after `supabase/nf1-access-operations-foundation.sql` is applied.
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Permission seed | `permission_definitions`, platform roles, business presets, and helper functions exist | DB |
+| Existing owner seed | Existing business owner appears in `business_users` as Owner Studio Admin | DB |
+| Existing staff seed | Existing linked staff appear in `business_users` as Management/Instructor based on `staff.user_group` | DB |
+| Owner user page | Owner opens `/owner/users` and sees users, roles, pending invites, and permission catalog | Browser |
+| Owner invite | Owner invites a user; `business_user_invites`, `business_users`, and `staff_invites` rows are created | Browser + DB |
+| Staff invite bridge | Invitee accepts `/staff/invite/[token]`; matching `business_users` row becomes active with `user_id` and `staff_id` | Browser + DB |
+| Custom role create | Owner creates a custom role with selected permissions; `business_role_permissions` rows match UI | Browser + DB |
+| User edit | Owner changes a user's role/status; API updates only that business user | API + Browser |
+| API denial | Instructor without `users.view` or `roles.manage` cannot call owner user/role APIs | API |
+| Payout permission | User without `payouts.mark_paid` cannot record staff payout; owner/admin still can | API |
+| Admin access page | Admin opens `/admin/access` and sees platform presets and admin users | Browser |
+| Platform role assignment | Super Admin assigns Support/Finance/Ops/Moderator role; `platform_users` upserts correctly | Browser + DB |
+| Non-admin denial | Non-admin cannot access `/api/admin/access` | API |
+| Customer impact | Marketplace browse, class detail, and booking pages remain unchanged | Browser |
+
+### Phase NF-1B: Venues, Sponsors, Branding, Notifications
+
+Run after `supabase/nf1-access-operations-foundation.sql` and `supabase/nf1b-operations-modules.sql` are applied.
+
+| Test area | What to verify | Automation candidate |
+| --- | --- | --- |
+| Venue schema | `venues`, `class_venues`, class venue columns, and RLS policies exist | DB |
+| Owner venue create | Owner creates a venue from `/owner/venues`; row belongs to owner business | Browser + DB |
+| Owner venue deactivate | Owner toggles active/inactive status and cannot update another business venue | API + DB |
+| Admin global venue | Admin creates a global venue at `/admin/venues` | Browser + DB |
+| Global venue visibility | Owner/staff venue APIs include active global venues | API |
+| Class create venue selection | Owner selects saved/global venue while creating a class; location, venue name, cost, currency, and `venue_id` persist | Browser + DB |
+| Class edit venue selection | Owner edits an existing class and saved venue selection persists after reload | Browser + DB |
+| Staff venue directory | Staff opens `/staff/venues` and sees only linked-business plus global active venues | Browser + API |
+| Sponsor schema | `sponsors`, `class_sponsors`, and public sponsor RLS/policies exist | DB |
+| Owner sponsor create | Owner creates sponsor from `/owner/sponsors`; row belongs to owner business | Browser + DB |
+| Attach sponsor | Owner attaches sponsor to class with amount/currency/payment/public fields | Browser + DB |
+| Private sponsor | `show_sponsor_publicly=false` does not appear on public class detail | Browser + API |
+| Public sponsor | `show_sponsor_publicly=true` appears on class detail with name/logo/message only | Browser + API |
+| Sponsor amount privacy | Customer/public class page never exposes sponsor amount or payment status | Browser |
+| Admin sponsor visibility | Admin opens `/admin/sponsors` and sees business, class, amount, payment, and public/private state | Browser |
+| Branding settings | Owner saves public display name, tagline, colors, cover image URL, and logo URL/upload | Browser + DB |
+| Branding surfaces | Owner sidebar, Staff sidebar, `/classes`, `/classes/[id]`, and `/businesses/[id]` use brand fields when present | Browser |
+| Branding fallback | Missing logo/cover/name fields fall back to existing VibePass/class artwork safely | Browser |
+| Notification schema | `notifications` table and RLS policies exist | DB |
+| Notification bell | Owner, staff, and admin sidebars show bell, unread count, notification list, priority badge, and action links | Browser |
+| Mark read | Mark one/all notifications read updates `read_at` and unread count | Browser + DB |
+| Permission denial | Users without matching business/platform permissions cannot call owner/admin venue/sponsor APIs | API |
+| Regression | Customer browse, booking, owner class create/edit, staff invite/profile, revenue/profitability, and dummy payment mode remain unchanged | Browser + API |
+
 ### Phase NF-4: Admin Operations Upgrade
 
 | Test area | What to verify | Automation candidate |
@@ -500,6 +592,7 @@ This section maps each new feature phase to the QA work it will require. Update 
 | 2026-06-04 | Local | `npm run build` | Passed after code fixes for `BUG-001` to `BUG-004`. SQL migrations still pending manual Supabase run. |
 | 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | BUG-001 to BUG-004 retest after SQL applied | All four bugs retested and passed. Report submission works. Staff invite links staff to business. Owner staff list shows staff. Staff profile edits persist. |
 | 2026-06-04 | Staging `https://vibepass-staging.vercel.app/` | NF-0A manual admin QA — admin access, owner approval flow, cross-portal retest | Passed. Admin login → dashboard confirmed. Non-admin Access Denied confirmed. Owner approved → status active. Owner published draft class → appeared on marketplace. Customer booked published class → owner bookings updated. Rejection flow: optional, not required for NF-0A pass. |
+| 2026-06-05 | Local | NF-1B venues, sponsors, branding, and notifications implementation | `npm run lint` passed with warnings only. `npm run build` passed with 81 app routes/pages. Staging SQL and browser QA pending. |
 
 ## Mandatory Update Rule
 

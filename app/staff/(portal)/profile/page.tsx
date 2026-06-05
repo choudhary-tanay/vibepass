@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { formatCurrency } from "@/lib/currency";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,14 +23,15 @@ export default async function StaffProfilePage() {
       .single(),
     supabaseAdmin
       .from("staff")
-      .select("role, image_url, bio, specialties, experience_years, instagram_url, website_url, businesses(business_name)")
+      .select("id, business_id, role, image_url, bio, specialties, experience_years, instagram_url, website_url, businesses(business_name, default_currency)")
       .or(`user_id.eq.${user.id},email.eq.${user.email ?? ""}`)
       .eq("status", "active")
       .maybeSingle(),
   ]);
 
-  const businessName =
-    (staffRow?.businesses as { business_name?: string } | null)?.business_name ?? "Not linked yet";
+  const businessData = staffRow?.businesses as { business_name?: string; default_currency?: string } | null;
+  const businessName = businessData?.business_name ?? "Not linked yet";
+  const bizCurrency = businessData?.default_currency ?? "INR";
 
   const displayName = profile?.name ?? user.email ?? "Staff Member";
   const initials = displayName.slice(0, 2).toUpperCase();
@@ -37,6 +39,16 @@ export default async function StaffProfilePage() {
     (staffRow?.image_url as string | null | undefined) ??
     (profile?.image_url as string | null | undefined) ??
     null;
+  const { data: earningSnapshots } = staffRow?.id
+    ? await supabaseAdmin
+        .from("staff_earning_snapshots")
+        .select("class_staff_id, class_id, earning_amount, paid_amount, unpaid_amount, payout_status, classes(title)")
+        .eq("staff_id", staffRow.id as string)
+    : { data: null };
+  const earnings = earningSnapshots ?? [];
+  const totalEarned = earnings.reduce((sum, earning) => sum + Number(earning.earning_amount ?? 0), 0);
+  const totalPaid = earnings.reduce((sum, earning) => sum + Number(earning.paid_amount ?? 0), 0);
+  const unpaidBalance = earnings.reduce((sum, earning) => sum + Number(earning.unpaid_amount ?? 0), 0);
 
   return (
     <main className="min-h-screen px-4 py-8 sm:px-6">
@@ -74,6 +86,40 @@ export default async function StaffProfilePage() {
               </div>
             </div>
           </div>
+
+          {staffRow && (
+            <div className="rounded-3xl bg-white p-6 shadow-sm">
+              <h2 className="mb-4 text-sm font-black uppercase tracking-wider text-slate-400">My Earnings</h2>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl bg-indigo-50 p-4">
+                  <p className="text-xs font-black uppercase text-indigo-500">Earned</p>
+                  <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(totalEarned, bizCurrency)}</p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 p-4">
+                  <p className="text-xs font-black uppercase text-emerald-600">Paid</p>
+                  <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(totalPaid, bizCurrency)}</p>
+                </div>
+                <div className={`rounded-2xl p-4 ${unpaidBalance > 0 ? "bg-red-50" : "bg-slate-50"}`}>
+                  <p className={`text-xs font-black uppercase ${unpaidBalance > 0 ? "text-red-600" : "text-slate-500"}`}>Unpaid</p>
+                  <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(unpaidBalance, bizCurrency)}</p>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2">
+                {earnings.slice(0, 4).map((earning) => {
+                  const cls = Array.isArray(earning.classes) ? earning.classes[0] : earning.classes;
+                  return (
+                  <div key={String(earning.class_staff_id ?? earning.class_id)} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm">
+                    <span className="font-semibold text-slate-700">{cls?.title ?? "Class"}</span>
+                    <span className="text-right font-black text-slate-900">
+                      {formatCurrency(Number(earning.earning_amount ?? 0), bizCurrency)}<br />
+                      <span className="text-xs font-semibold text-slate-400">{String(earning.payout_status ?? "no_earning").replace("_", " ")}</span>
+                    </span>
+                  </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Contact */}
           <div className="rounded-3xl bg-white p-6 shadow-sm">

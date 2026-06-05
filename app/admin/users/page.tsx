@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
 
 interface AdminUser {
   id: string;
@@ -20,10 +21,19 @@ const roleStyles: Record<string, string> = {
   customer: "bg-gray-100 text-gray-600",
 };
 
+const COLUMNS: ColDef[] = [
+  { key: "user", label: "User", fixed: true },
+  { key: "role", label: "Role" },
+  { key: "email", label: "Email" },
+  { key: "status", label: "Status" },
+  { key: "created", label: "Created", defaultHidden: true },
+];
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "owner" | "customer" | "admin">("all");
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     supabase
@@ -36,8 +46,15 @@ export default function AdminUsersPage() {
       });
   }, []);
 
-  const filtered =
-    filter === "all" ? users : users.filter((u) => u.role === filter);
+  const filtered = users.filter((u) => {
+    if (filter !== "all" && u.role !== filter) return false;
+    if (!q) return true;
+    const lower = q.toLowerCase();
+    return (
+      (u.name ?? "").toLowerCase().includes(lower) ||
+      (u.email ?? "").toLowerCase().includes(lower)
+    );
+  });
 
   if (loading) {
     return (
@@ -46,6 +63,24 @@ export default function AdminUsersPage() {
       </div>
     );
   }
+
+  const roleFilterToolbar = (
+    <div className="flex flex-wrap gap-2">
+      {(["all", "owner", "customer", "admin"] as const).map((r) => (
+        <button
+          key={r}
+          onClick={() => setFilter(r)}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            filter === r
+              ? "bg-gray-900 text-white"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          {r.charAt(0).toUpperCase() + r.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div>
@@ -57,71 +92,92 @@ export default function AdminUsersPage() {
             {users.filter((u) => u.role === "customer").length} customers
           </p>
         </div>
-        <Link
-          href="/admin/users/create"
-          className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
-        >
-          Add user
-        </Link>
-      </div>
-
-      {/* Role filter */}
-      <div className="mb-4 flex gap-2">
-        {(["all", "owner", "customer", "admin"] as const).map((r) => (
-          <button
-            key={r}
-            onClick={() => setFilter(r)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              filter === r
-                ? "bg-gray-900 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+        <div className="flex gap-2">
+          <Link
+            href="/admin/access"
+            className="rounded-full border border-sky-200 bg-sky-50 px-5 py-2.5 text-sm font-bold text-sky-700 hover:bg-sky-100"
           >
-            {r.charAt(0).toUpperCase() + r.slice(1)}
-          </button>
-        ))}
+            Roles & Permissions
+          </Link>
+          <Link
+            href="/admin/users/create"
+            className="rounded-full bg-slate-950 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+          >
+            Add user
+          </Link>
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b border-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-400">
-            <tr>
-              <th className="px-6 py-4 text-left">Name</th>
-              <th className="px-6 py-4 text-left">Email</th>
-              <th className="px-6 py-4 text-left">Phone</th>
-              <th className="px-6 py-4 text-left">Role</th>
-              <th className="px-6 py-4 text-left">Joined</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {filtered.map((u) => (
-              <tr key={u.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 font-medium text-gray-900">{u.name || "—"}</td>
-                <td className="px-6 py-4 text-gray-600">{u.email ?? "—"}</td>
-                <td className="px-6 py-4 text-gray-600">{u.phone || "—"}</td>
-                <td className="px-6 py-4">
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
-                      roleStyles[u.role] ?? "bg-gray-100 text-gray-500"
-                    }`}
-                  >
-                    {u.role}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {new Date(u.created_at).toLocaleDateString("en-IN")}
-                </td>
+      <DataTable
+        tableId="admin-users"
+        columns={COLUMNS}
+        searchQuery={q}
+        onSearchQuery={setQ}
+        searchPlaceholder="Search by name or email…"
+        toolbar={roleFilterToolbar}
+        summary={`${filtered.length} of ${users.length}`}
+        emptyState={
+          filtered.length === 0 ? (
+            <div className="py-16 text-center text-sm text-gray-400">
+              No users found.
+            </div>
+          ) : undefined
+        }
+      >
+        {(vis) => (
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                {vis.has("user") && <Th>Name</Th>}
+                {vis.has("role") && <Th>Role</Th>}
+                {vis.has("email") && <Th>Email / Phone</Th>}
+                {vis.has("status") && <Th>Status</Th>}
+                {vis.has("created") && <Th>Joined</Th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {filtered.length === 0 && (
-          <div className="py-16 text-center text-sm text-gray-400">
-            No users found.
-          </div>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((u) => (
+                <tr key={u.id} className="hover:bg-gray-50">
+                  {vis.has("user") && (
+                    <Td>
+                      <span className="font-medium text-gray-900">{u.name || "—"}</span>
+                    </Td>
+                  )}
+                  {vis.has("role") && (
+                    <Td>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
+                          roleStyles[u.role] ?? "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {u.role}
+                      </span>
+                    </Td>
+                  )}
+                  {vis.has("email") && (
+                    <Td>
+                      <p className="text-gray-600">{u.email ?? "—"}</p>
+                      <p className="text-xs text-gray-400">{u.phone || "—"}</p>
+                    </Td>
+                  )}
+                  {vis.has("status") && (
+                    <Td>
+                      <span className="text-xs text-gray-400">—</span>
+                    </Td>
+                  )}
+                  {vis.has("created") && (
+                    <Td>
+                      <span className="text-gray-600">
+                        {new Date(u.created_at).toLocaleDateString("en-IN")}
+                      </span>
+                    </Td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
-      </div>
+      </DataTable>
     </div>
   );
 }

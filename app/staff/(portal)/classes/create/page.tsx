@@ -523,7 +523,7 @@ export default function StaffProposeClassPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-5">
-              <Field label="Price (₹)" name="price" required error={errors.price} hint="0 for free">
+              <Field label="Price" name="price" required error={errors.price} hint="0 for free; uses your studio operating currency">
                 <input id="price" name="price" type="number" min="0" value={form.price} onChange={handleChange}
                   placeholder="500" className={inputClass(!!errors.price)} />
               </Field>

@@ -77,6 +77,7 @@ export default function StaffProfileEditPage() {
         instagramUrl: staffRow?.instagram_url ?? "",
         websiteUrl: staffRow?.website_url ?? "",
       });
+
       setLoading(false);
     }
     void loadStaffData();
@@ -356,6 +357,10 @@ export default function StaffProfileEditPage() {
                 className={inputClass()}
               />
             </div>
+          </div>
+
+          <div className="rounded-3xl bg-white p-6 text-sm font-semibold text-slate-500 shadow-sm">
+            Earnings, payouts, and class costs use your studio operating currency.
           </div>
 
           {saveError && (

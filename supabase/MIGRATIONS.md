@@ -41,6 +41,19 @@ Each file builds on the one before it — running them out of order will cause e
 | 18 | `admin-audit-logs.sql` | `admin_audit_logs` table and RLS policy | Yes (`IF NOT EXISTS`) |
 | 19 | `payment-refund-status.sql` | Extends `payments.status` to include `refund_required` | Yes (drops/re-adds constraint) |
 | 20 | `report-status-update.sql` | Extends `reports.status` to include `reviewing`, `dismissed`, and `action_taken` | Yes (drops/re-adds constraint) |
+| 21 | `nf0b-revenue-split-payouts.sql` | Adds revenue split foundation: margin alias, class staff commission type/value, `staff_payouts`, and dynamic revenue views | Yes |
+| 22 | `nf0c-profitability.sql` | Adds `venue_name`, `venue_cost`, `venue_note`, `tax_type`, `tax_value`, `expected_bookings` to `classes`; `fixed_class_cost`, `cost_note` to `class_staff`; new `class_expenses` table with RLS; `class_customer_retention` view | Yes |
+| 23 | `nf0d-currency.sql` | Adds `default_currency`, `reporting_currency` to `businesses`; `preferred_currency` to `profiles`; `currency` to `classes`, `class_expenses`, `staff_payouts` | Yes |
+| 24 | `nf0e-exchange-rates.sql` | Adds `exchange_rates` table with preset INR/USD/AUD/EUR rates; admin-only write, public read | Yes |
+| 25 | `nf0g-country.sql` | Adds `country` to `businesses` (India/USA/Australia/Europe); backfills country=India, default_currency=INR for existing rows | Yes |
+| 25 | `nf1-access-operations-foundation.sql` | Adds permission definitions, VibePass Interface platform roles/users, Owner Studio business roles/users/invites, preset role seeding, and permission helper functions | Yes |
+| 26 | `nf1b-operations-modules.sql` | Adds venues, class venue links, sponsors, class sponsors, business branding fields, and in-app portal notifications | Yes |
+| 27 | `nf0f-finance-snapshots.sql` | Adds booking/class/staff finance snapshot tables, payout currency backfill, and fixes the 0% platform margin fallback in the SQL revenue mirror view | Yes |
+| 28 | `nf0h-finance-engine-integrity.sql` | Adds compound indexes on snapshot tables, backfills `commission_value` from `commission_percent`, syncs `platform_margin_percent` from `platform_margin`, documents source-of-truth rules | Yes |
+| 29 | `nf0i-cancellation-refund-loss.sql` | Adds cancellation policy columns to `classes`, cancellation tracking to `bookings`, cancellation fields to `class_financial_snapshots`, and creates `class_refund_rules`, `class_cancellation_records`, `class_cancellation_costs`, `booking_refunds`, `staff_cancellation_earnings` tables | Yes |
+| 30 | `nf0i-cancellation-backfill.sql` | Repairs old cancelled class data: cancels bookings, creates refund records (100% default, needs_review=true), creates cancellation records, marks snapshot cancellation_status | Yes (run after #29, then POST /api/finance/recalculate/business/:id) |
+
+Note: `profiles.preferred_currency` (from migration #23) remains available for admin display preferences. Owner Studio and Staff Portal financial values now use business operating currency only.
 
 ---
 
@@ -125,6 +138,12 @@ These files exist but are utilities, not migrations:
 ## Idempotency Notes
 
 All migration files use `CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE FUNCTION`, `DROP POLICY IF EXISTS`, and similar safe patterns. They can generally be re-run without errors on an existing database. The exceptions are `payment-refund-status.sql` and `report-status-update.sql`, which drop and re-add CHECK constraints. This is safe but will briefly lock the affected table.
+
+`nf0b-revenue-split-payouts.sql` is additive. It keeps existing `businesses.platform_margin` for backwards compatibility, adds `platform_margin_percent`, extends `class_staff`, creates `staff_payouts`, and exposes dynamic calculation views. Run this file before testing owner staff payout marking or fixed/percentage commission rules in staging.
+
+`nf1-access-operations-foundation.sql` is additive. Run it before testing `/owner/users`, `/admin/access`, custom Owner Studio roles, platform role assignment, or permission-gated payout marking. Existing `staff_invites` and `staff` flows remain compatible; accepted staff invites now activate matching `business_users` rows when the table exists.
+
+`nf1b-operations-modules.sql` is additive. Run it after `nf1-access-operations-foundation.sql` and before testing `/owner/venues`, `/admin/venues`, `/staff/venues`, `/owner/sponsors`, `/admin/sponsors`, class sponsor display, owner branding fields, or portal notifications.
 
 ---
 

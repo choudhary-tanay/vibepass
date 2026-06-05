@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { VibePassLogo } from "@/components/VibePassLogo";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const sections = [
   {
@@ -19,6 +20,7 @@ const sections = [
       { href: "/admin/owner-approvals", label: "Owners", icon: "☑" },
       { href: "/admin/reports", label: "Reports", icon: "!" },
       { href: "/admin/featured", label: "Featured", icon: "★" },
+      { href: "/admin/access", label: "Roles & Permissions", icon: "◇" },
       { href: "/admin/audit-logs", label: "Audit Logs", icon: "📋" },
       { href: "/admin/health", label: "Health", icon: "♡" },
     ],
@@ -30,6 +32,8 @@ const sections = [
       { href: "/admin/classes", label: "Classes", icon: "🎟️" },
       { href: "/admin/bookings", label: "Bookings", icon: "₪" },
       { href: "/admin/users", label: "Users", icon: "◌" },
+      { href: "/admin/venues", label: "Venues", icon: "⌂" },
+      { href: "/admin/sponsors", label: "Sponsors", icon: "★" },
     ],
   },
 ];
@@ -40,9 +44,12 @@ export default function AdminSidebar() {
 
   return (
     <aside className="flex max-h-[46vh] w-full shrink-0 flex-col overflow-y-auto border-b border-sky-100 bg-white/75 px-4 py-5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 lg:h-full lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r">
-      <Link href="/admin/dashboard" className="px-2">
-        <VibePassLogo portalLabel="Admin Command" portalColor="text-sky-600 dark:text-sky-300" />
-      </Link>
+      <div className="flex items-center justify-between gap-3 px-2">
+        <Link href="/admin/dashboard" className="min-w-0">
+          <VibePassLogo portalLabel="VibePass Interface" portalColor="text-sky-600 dark:text-sky-300" />
+        </Link>
+        <NotificationBell />
+      </div>
 
       <nav className="mt-7 flex flex-1 flex-col gap-5 overflow-y-auto pr-1">
         {sections.map((section) => (

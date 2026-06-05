@@ -11,6 +11,8 @@ type CardInstructor = Pick<
 interface ClassCardProps {
   cls: Class;
   businessName: string;
+  businessLogoUrl?: string;
+  businessBrandColor?: string;
   instructors?: CardInstructor[];
   href?: string;
   ctaLabel?: string;
@@ -41,6 +43,8 @@ function fallbackInstructorsFromName(name: string): CardInstructor[] {
 export function ClassCard({
   cls,
   businessName,
+  businessLogoUrl,
+  businessBrandColor,
   instructors = [],
   href = `/classes/${cls.id}`,
   ctaLabel = "View Details",
@@ -107,7 +111,19 @@ export function ClassCard({
         <h2 className="text-xl font-black leading-tight text-slate-950">
           {cls.title}
         </h2>
-        <p className="mt-1 text-sm font-bold text-blue-600">{businessName}</p>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-50 text-[10px] font-black text-blue-700"
+            style={businessBrandColor ? { backgroundColor: `${businessBrandColor}18`, color: businessBrandColor } : undefined}
+          >
+            {businessLogoUrl ? (
+              <img src={businessLogoUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              initialsFor(businessName)
+            )}
+          </div>
+          <p className="truncate text-sm font-bold text-blue-600">{businessName}</p>
+        </div>
 
         <div className="mt-4 rounded-[1.25rem] bg-white/72 p-3 shadow-sm ring-1 ring-slate-100 dark:bg-slate-950/50 dark:ring-slate-800">
           <div className="flex items-center gap-3">

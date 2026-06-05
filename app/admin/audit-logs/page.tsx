@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import Link from "next/link";
+import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
 
 interface AuditLog {
   id: string;
@@ -52,10 +53,21 @@ function formatDate(d: string) {
   });
 }
 
+const COLUMNS: ColDef[] = [
+  { key: "action", label: "Action", fixed: true },
+  { key: "entity", label: "Entity" },
+  { key: "admin", label: "Admin" },
+  { key: "details", label: "Details", defaultHidden: true },
+  { key: "timestamp", label: "Timestamp" },
+];
+
+const entityTypes = ["all", "business", "class", "user", "report"];
+
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -69,10 +81,33 @@ export default function AuditLogsPage() {
     })();
   }, []);
 
-  const entityTypes = ["all", "business", "class", "user", "report"];
+  const filtered = logs.filter((l) => {
+    if (filter !== "all" && l.entity_type !== filter) return false;
+    if (!q) return true;
+    const lower = q.toLowerCase();
+    return (
+      l.action_type.toLowerCase().includes(lower) ||
+      (l.admin_id ?? "").toLowerCase().includes(lower)
+    );
+  });
 
-  const filtered =
-    filter === "all" ? logs : logs.filter((l) => l.entity_type === filter);
+  const entityFilterToolbar = (
+    <div className="flex flex-wrap gap-2">
+      {entityTypes.map((et) => (
+        <button
+          key={et}
+          onClick={() => setFilter(et)}
+          className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${
+            filter === et
+              ? "bg-sky-700 text-white"
+              : "bg-white text-slate-600 hover:bg-sky-50 dark:bg-slate-900 dark:text-slate-300"
+          }`}
+        >
+          {et === "all" ? "All" : et.charAt(0).toUpperCase() + et.slice(1) + "s"}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <main className="min-h-screen px-4 py-8 sm:px-6">
@@ -92,99 +127,116 @@ export default function AuditLogsPage() {
           </p>
         </div>
 
-        {/* Filter tabs */}
-        <div className="mb-4 flex flex-wrap gap-2">
-          {entityTypes.map((et) => (
-            <button
-              key={et}
-              onClick={() => setFilter(et)}
-              className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${
-                filter === et
-                  ? "bg-sky-700 text-white"
-                  : "bg-white text-slate-600 hover:bg-sky-50 dark:bg-slate-900 dark:text-slate-300"
-              }`}
-            >
-              {et === "all" ? "All" : et.charAt(0).toUpperCase() + et.slice(1) + "s"}
-            </button>
-          ))}
-        </div>
-
-        {loading ? (
-          <div className="animate-pulse rounded-3xl bg-white/70 p-12 text-center dark:bg-slate-900/50">
-            <p className="text-slate-400">Loading logs…</p>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="rounded-3xl bg-white p-12 text-center shadow-sm dark:bg-slate-900">
-            <p className="text-4xl">📋</p>
-            <p className="mt-4 text-lg font-bold text-slate-700 dark:text-white">No audit log entries yet</p>
-            <p className="mt-1 text-sm text-slate-500">
-              Admin actions will appear here once the audit_logs table is created and actions are taken.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-3xl bg-white shadow-sm dark:bg-slate-900">
+        <DataTable
+          tableId="admin-audit-logs"
+          columns={COLUMNS}
+          searchQuery={q}
+          onSearchQuery={setQ}
+          searchPlaceholder="Search by action or admin…"
+          toolbar={entityFilterToolbar}
+          summary={`${filtered.length} of ${logs.length}`}
+          loading={loading}
+          emptyState={
+            !loading && filtered.length === 0 ? (
+              <div className="p-12 text-center">
+                <p className="text-4xl">📋</p>
+                <p className="mt-4 text-lg font-bold text-slate-700 dark:text-white">No audit log entries yet</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Admin actions will appear here once the audit_logs table is created and actions are taken.
+                </p>
+              </div>
+            ) : undefined
+          }
+        >
+          {(vis) => (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                  <th className="px-5 py-3 text-left text-xs font-black uppercase text-slate-400">Action</th>
-                  <th className="hidden px-5 py-3 text-left text-xs font-black uppercase text-slate-400 sm:table-cell">Entity</th>
-                  <th className="hidden px-5 py-3 text-left text-xs font-black uppercase text-slate-400 md:table-cell">Change</th>
-                  <th className="px-5 py-3 text-left text-xs font-black uppercase text-slate-400">When</th>
+                  {vis.has("action") && (
+                    <Th>Action</Th>
+                  )}
+                  {vis.has("entity") && (
+                    <Th>Entity</Th>
+                  )}
+                  {vis.has("admin") && (
+                    <Th>Admin</Th>
+                  )}
+                  {vis.has("details") && (
+                    <Th>Change</Th>
+                  )}
+                  {vis.has("timestamp") && (
+                    <Th>When</Th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
                 {filtered.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="px-5 py-3">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                          ACTION_COLORS[log.action_type] ?? "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {formatActionType(log.action_type)}
-                      </span>
-                      {log.reason && (
-                        <p className="mt-1 text-xs text-slate-500 italic">{log.reason}</p>
-                      )}
-                    </td>
-                    <td className="hidden px-5 py-3 sm:table-cell">
-                      {log.entity_type && (
-                        <span className="font-semibold capitalize text-slate-700 dark:text-slate-200">
-                          {log.entity_type}
+                    {vis.has("action") && (
+                      <Td>
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                            ACTION_COLORS[log.action_type] ?? "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {formatActionType(log.action_type)}
                         </span>
-                      )}
-                      {log.entity_id && (
-                        <p className="font-mono text-[11px] text-slate-400">
-                          {log.entity_id.slice(0, 8)}…
-                        </p>
-                      )}
-                    </td>
-                    <td className="hidden px-5 py-3 md:table-cell">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-                        {log.old_value && (
-                          <>
-                            <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600">
-                              {log.old_value}
-                            </span>
-                            <span className="text-slate-400">→</span>
-                          </>
+                        {log.reason && (
+                          <p className="mt-1 text-xs text-slate-500 italic">{log.reason}</p>
                         )}
-                        {log.new_value && (
-                          <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
-                            {log.new_value}
+                      </Td>
+                    )}
+                    {vis.has("entity") && (
+                      <Td>
+                        {log.entity_type && (
+                          <span className="font-semibold capitalize text-slate-700 dark:text-slate-200">
+                            {log.entity_type}
                           </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-slate-500">
-                      {formatDate(log.created_at)}
-                    </td>
+                        {log.entity_id && (
+                          <p className="font-mono text-[11px] text-slate-400">
+                            {log.entity_id.slice(0, 8)}…
+                          </p>
+                        )}
+                      </Td>
+                    )}
+                    {vis.has("admin") && (
+                      <Td>
+                        <span className="font-mono text-[11px] text-slate-400">
+                          {log.admin_id.slice(0, 8)}…
+                        </span>
+                      </Td>
+                    )}
+                    {vis.has("details") && (
+                      <Td>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                          {log.old_value && (
+                            <>
+                              <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600">
+                                {log.old_value}
+                              </span>
+                              <span className="text-slate-400">→</span>
+                            </>
+                          )}
+                          {log.new_value && (
+                            <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
+                              {log.new_value}
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                    )}
+                    {vis.has("timestamp") && (
+                      <Td>
+                        <span className="text-xs text-slate-500">{formatDate(log.created_at)}</span>
+                      </Td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </DataTable>
       </div>
     </main>
   );

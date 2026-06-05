@@ -6,6 +6,16 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function isSchemaColumnMissing(error: { message?: string; code?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42703" ||
+    message.includes("column") ||
+    message.includes("schema cache") ||
+    message.includes("does not exist")
+  );
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -83,6 +93,7 @@ export async function POST(
       return Response.json({ error: "Platform margin must be between 0 and 100" }, { status: 400 });
     }
     patch.platform_margin = margin;
+    patch.platform_margin_percent = margin;
     patch.margin_note = marginNote || null;
     if (margin > 0) patch.margin_set_at = new Date().toISOString();
   }
@@ -97,6 +108,15 @@ export async function POST(
     .eq("id", id);
 
   if (error) {
+    if ("platform_margin_percent" in patch && isSchemaColumnMissing(error)) {
+      const fallbackPatch = { ...patch };
+      delete fallbackPatch.platform_margin_percent;
+      const { error: fallbackError } = await supabaseAdmin
+        .from("businesses")
+        .update(fallbackPatch)
+        .eq("id", id);
+      if (!fallbackError) return Response.json({ ok: true });
+    }
     console.error("Admin business update error:", error);
     return Response.json({ error: error.message }, { status: 500 });
   }

@@ -42,6 +42,16 @@ interface DbBusiness {
   review_requested: boolean;
   review_request_note: string | null;
   review_requested_at: string | null;
+  platform_margin?: number | null;
+  platform_margin_percent?: number | null;
+  default_currency?: string | null;
+  reporting_currency?: string | null;
+  country?: string | null;
+  public_display_name?: string | null;
+  brand_tagline?: string | null;
+  brand_color?: string | null;
+  brand_secondary_color?: string | null;
+  cover_image_url?: string | null;
 }
 
 interface DbClass {
@@ -87,6 +97,18 @@ interface DbClass {
   // Phase 12
   browse_featured: boolean;
   browse_position: number | null;
+  staff_commission_percent?: number | null;
+  // NF-0C profitability
+  venue_name?: string | null;
+  venue_id?: string | null;
+  venue_cost?: number | null;
+  venue_note?: string | null;
+  venue_cost_currency?: string | null;
+  venue_cost_note?: string | null;
+  tax_type?: string | null;
+  tax_value?: number | null;
+  expected_bookings?: number | null;
+  currency?: string | null;
 }
 
 interface DbStaff {
@@ -109,9 +131,13 @@ interface DbStaff {
 }
 
 interface DbClassStaff {
+  id?: string;
   class_id: string;
   staff_id: string;
   is_primary: boolean | null;
+  commission_type?: string | null;
+  commission_value?: number | null;
+  commission_percent?: number | null;
 }
 
 interface DbBooking {
@@ -142,6 +168,7 @@ interface DbProfile {
   role: string;
   image_url: string | null;
   status: string | null;
+  preferred_currency?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +195,16 @@ function toBusiness(row: DbBusiness): Business {
     reviewRequested: row.review_requested ?? false,
     reviewRequestNote: row.review_request_note ?? undefined,
     reviewRequestedAt: row.review_requested_at ?? undefined,
+    platformMargin: row.platform_margin ?? undefined,
+    platformMarginPercent: row.platform_margin_percent ?? row.platform_margin ?? undefined,
+    defaultCurrency: row.default_currency ?? "INR",
+    reportingCurrency: row.reporting_currency ?? row.default_currency ?? "INR",
+    country: row.country ?? "India",
+    publicDisplayName: row.public_display_name ?? undefined,
+    brandTagline: row.brand_tagline ?? undefined,
+    brandColor: row.brand_color ?? undefined,
+    brandSecondaryColor: row.brand_secondary_color ?? undefined,
+    coverImageUrl: row.cover_image_url ?? undefined,
   };
 }
 
@@ -215,6 +252,17 @@ function toClass(row: DbClass, classStaffByClass?: Record<string, string[]>): Cl
     archivedAt: row.archived_at ?? undefined,
     browseFeatured: row.browse_featured ?? false,
     browsePosition: row.browse_position ?? undefined,
+    staffCommissionPercent: row.staff_commission_percent ?? undefined,
+    venueName: row.venue_name ?? undefined,
+    venueId: row.venue_id ?? undefined,
+    venueCost: row.venue_cost ?? undefined,
+    venueNote: row.venue_note ?? undefined,
+    venueCostCurrency: row.venue_cost_currency ?? undefined,
+    venueCostNote: row.venue_cost_note ?? undefined,
+    taxType: (row.tax_type as import("@/types").TaxType | undefined) ?? undefined,
+    taxValue: row.tax_value ?? undefined,
+    expectedBookings: row.expected_bookings ?? undefined,
+    currency: row.currency ?? "INR",
   };
 }
 
@@ -282,6 +330,7 @@ function toProfile(row: DbProfile): Profile {
     role: row.role as Profile["role"],
     imageUrl: row.image_url ?? undefined,
     status: row.status ?? "active",
+    preferredCurrency: row.preferred_currency ?? "INR",
   };
 }
 
@@ -298,7 +347,7 @@ interface AppState {
   user: User | null;
   profile: Profile | null;
   currentBusiness: Business | null;
-  addClass: (cls: Omit<Class, "id" | "bookedCount">) => Promise<boolean>;
+  addClass: (cls: Omit<Class, "id" | "bookedCount">) => Promise<{ success: boolean; classId?: string }>;
   updateClass: (
     classId: string,
     data: Partial<Omit<Class, "id" | "businessId" | "bookedCount">>
@@ -324,6 +373,14 @@ interface AppState {
         | "email"
         | "isMarketplaceVisible"
         | "logoUrl"
+        | "defaultCurrency"
+        | "reportingCurrency"
+        | "country"
+        | "publicDisplayName"
+        | "brandTagline"
+        | "brandColor"
+        | "brandSecondaryColor"
+        | "coverImageUrl"
       >
     >
   ) => Promise<boolean>;
@@ -474,7 +531,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function addClass(
     cls: Omit<Class, "id" | "bookedCount">
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; classId?: string }> {
     const selectedStaffIds = cls.staffIds && cls.staffIds.length > 0
       ? cls.staffIds
       : cls.staffId
@@ -498,6 +555,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         capacity: cls.capacity,
         location: cls.location,
         status: cls.status,
+        staff_commission_percent: cls.staffCommissionPercent ?? 0,
         tagline: cls.tagline ?? null,
         what_to_expect: cls.whatToExpect ?? null,
         who_this_is_for: cls.whoThisIsFor ?? null,
@@ -519,23 +577,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         featured_request_note: cls.featureRequestNote ?? null,
         featured_requested_at: cls.featureRequested ? new Date().toISOString() : null,
         age_suitability: cls.ageSuitability ?? null,
+        venue_name: cls.venueName ?? null,
+        venue_id: cls.venueId ?? null,
+        venue_cost: cls.venueCost ?? 0,
+        venue_note: cls.venueNote ?? null,
+        venue_cost_currency: cls.venueCostCurrency ?? cls.currency ?? "INR",
+        venue_cost_note: cls.venueCostNote ?? cls.venueNote ?? null,
+        tax_type: cls.taxType ?? "none",
+        tax_value: cls.taxValue ?? 0,
+        expected_bookings: cls.expectedBookings ?? null,
+        currency: cls.currency ?? "INR",
       })
       .select()
       .single();
 
     if (error || !data) {
       console.error("Error adding class:", error);
-      return false;
+      return { success: false };
     }
 
     if (selectedStaffIds.length > 0) {
-      const { error: classStaffError } = await supabase.from("class_staff").insert(
-        selectedStaffIds.map((staffId, index) => ({
+      const classStaffRows = selectedStaffIds.map((staffId, index) => {
+        const commission = cls.staffCommissions?.find((item) => item.staffId === staffId);
+        const commissionType = commission?.commissionType ?? "percentage";
+        const commissionValue = commission?.commissionValue ?? cls.staffCommissionPercent ?? 0;
+        return {
           class_id: data.id,
           staff_id: staffId,
           is_primary: index === 0,
-        }))
-      );
+          commission_type: commissionType,
+          commission_value: commissionValue,
+          commission_percent: commissionType === "percentage" ? commissionValue : 0,
+          fixed_class_cost: commission?.fixedClassCost ?? 0,
+        };
+      });
+      const { error: classStaffError } = await supabase.from("class_staff").insert(classStaffRows);
+      if (classStaffError && isSchemaColumnMissing(classStaffError)) {
+        const { error: fallbackError } = await supabase.from("class_staff").insert(
+          classStaffRows.map(({ class_id, staff_id, is_primary, commission_percent }) => ({
+            class_id,
+            staff_id,
+            is_primary,
+            commission_percent,
+          }))
+        );
+        if (fallbackError && !isSchemaColumnMissing(fallbackError)) {
+          console.error("Error adding class staff:", fallbackError);
+        }
+      }
       if (classStaffError && !isSchemaColumnMissing(classStaffError)) {
         console.error("Error adding class staff:", classStaffError);
       }
@@ -549,7 +638,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         staffIds: selectedStaffIds.length > 0 ? selectedStaffIds : undefined,
       },
     ]);
-    return true;
+    fetch(`/api/finance/recalculate/class/${data.id}`, { method: "POST" }).catch(() => {});
+    return { success: true, classId: data.id as string };
   }
 
   async function updateClass(
@@ -595,6 +685,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       patch.featured_requested_at = data.featureRequested ? new Date().toISOString() : null;
     }
     if (data.ageSuitability !== undefined) patch.age_suitability = data.ageSuitability || null;
+    if (data.staffCommissionPercent !== undefined) patch.staff_commission_percent = data.staffCommissionPercent ?? 0;
+    if (data.venueName !== undefined) patch.venue_name = data.venueName || null;
+    if (data.venueId !== undefined) patch.venue_id = data.venueId || null;
+    if (data.venueCost !== undefined) patch.venue_cost = data.venueCost ?? 0;
+    if (data.venueNote !== undefined) patch.venue_note = data.venueNote || null;
+    if (data.venueCostCurrency !== undefined) patch.venue_cost_currency = data.venueCostCurrency || null;
+    if (data.venueCostNote !== undefined) patch.venue_cost_note = data.venueCostNote || null;
+    if (data.taxType !== undefined) patch.tax_type = data.taxType ?? "none";
+    if (data.taxValue !== undefined) patch.tax_value = data.taxValue ?? 0;
+    if (data.expectedBookings !== undefined) patch.expected_bookings = data.expectedBookings ?? null;
+    if (data.currency !== undefined) patch.currency = data.currency ?? "INR";
 
     const { error } = await supabase
       .from("classes")
@@ -614,13 +715,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (deleteErr && !isSchemaColumnMissing(deleteErr)) {
         console.error("Error clearing class staff:", deleteErr);
       } else if (data.staffIds.length > 0) {
-        const { error: insertErr } = await supabase.from("class_staff").insert(
-          data.staffIds.map((staffId, index) => ({
+        const classStaffRows = data.staffIds.map((staffId, index) => {
+          const commission = data.staffCommissions?.find((item) => item.staffId === staffId);
+          const commissionType = commission?.commissionType ?? "percentage";
+          const commissionValue = commission?.commissionValue ?? data.staffCommissionPercent ?? 0;
+          return {
             class_id: classId,
             staff_id: staffId,
             is_primary: index === 0,
-          }))
-        );
+          commission_type: commissionType,
+          commission_value: commissionValue,
+          commission_percent: commissionType === "percentage" ? commissionValue : 0,
+          fixed_class_cost: commission?.fixedClassCost ?? 0,
+        };
+      });
+        const { error: insertErr } = await supabase.from("class_staff").insert(classStaffRows);
+        if (insertErr && isSchemaColumnMissing(insertErr)) {
+          const { error: fallbackInsertErr } = await supabase.from("class_staff").insert(
+            classStaffRows.map(({ class_id, staff_id, is_primary, commission_percent }) => ({
+              class_id,
+              staff_id,
+              is_primary,
+              commission_percent,
+            }))
+          );
+          if (fallbackInsertErr && !isSchemaColumnMissing(fallbackInsertErr)) {
+            console.error("Error updating class staff:", fallbackInsertErr);
+          }
+        }
         if (insertErr && !isSchemaColumnMissing(insertErr)) {
           console.error("Error updating class staff:", insertErr);
         }
@@ -630,6 +752,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setClasses((prev) =>
       prev.map((c) => (c.id === classId ? { ...c, ...data } : c))
     );
+    fetch(`/api/finance/recalculate/class/${classId}`, { method: "POST" }).catch(() => {});
     return true;
   }
 
@@ -868,6 +991,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         c.id === classId ? { ...c, bookedCount: c.bookedCount + 1 } : c
       )
     );
+    fetch(`/api/finance/recalculate/class/${classId}`, { method: "POST" }).catch(() => {});
 
     return true;
   }
@@ -894,6 +1018,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : c
       )
     );
+    fetch(`/api/finance/recalculate/class/${classId}`, { method: "POST" }).catch(() => {});
     return { success: true };
   }
 
@@ -910,6 +1035,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         | "email"
         | "isMarketplaceVisible"
         | "logoUrl"
+        | "defaultCurrency"
+        | "reportingCurrency"
+        | "country"
+        | "publicDisplayName"
+        | "brandTagline"
+        | "brandColor"
+        | "brandSecondaryColor"
+        | "coverImageUrl"
       >
     >
   ): Promise<boolean> {
@@ -923,6 +1056,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data.isMarketplaceVisible !== undefined)
       patch.is_marketplace_visible = data.isMarketplaceVisible;
     if (data.logoUrl !== undefined) patch.logo_url = data.logoUrl || null;
+    if (data.defaultCurrency !== undefined) {
+      patch.default_currency = data.defaultCurrency ?? "INR";
+      // Keep reporting_currency in sync with operating currency
+      patch.reporting_currency = data.defaultCurrency ?? "INR";
+    }
+    if (data.reportingCurrency !== undefined) patch.reporting_currency = data.reportingCurrency ?? "INR";
+    if (data.country !== undefined) patch.country = data.country ?? "India";
+    if (data.publicDisplayName !== undefined) patch.public_display_name = data.publicDisplayName || null;
+    if (data.brandTagline !== undefined) patch.brand_tagline = data.brandTagline || null;
+    if (data.brandColor !== undefined) patch.brand_color = data.brandColor || null;
+    if (data.brandSecondaryColor !== undefined) patch.brand_secondary_color = data.brandSecondaryColor || null;
+    if (data.coverImageUrl !== undefined) patch.cover_image_url = data.coverImageUrl || null;
 
     const { error } = await supabase
       .from("businesses")

@@ -2134,6 +2134,141 @@ After implementing this file, Claude/Codex must respond with:
 
 ---
 
+# 30A. NF-0B Revenue Split Addendum
+
+NF-0B adds a revenue split and staff payout layer on top of the existing booking/payment model.
+
+SQL required:
+
+```text
+supabase/nf0b-revenue-split-payouts.sql
+```
+
+Database changes:
+
+* `businesses.platform_margin_percent` added as a clearer alias for platform margin.
+* Existing `businesses.platform_margin` remains for backwards compatibility.
+* `class_staff.commission_type` supports `percentage` and `fixed`.
+* `class_staff.commission_value` stores the percent or fixed amount.
+* `staff_payouts` records actual owner-to-staff payouts.
+* Dynamic views calculate class, staff, business, and platform revenue summaries.
+
+Core formulas:
+
+```text
+eligible bookings = confirmed + paid
+gross revenue = sum(eligible booking.amount)
+platform earning = gross revenue x platform margin / 100
+staff percentage earning = gross revenue x commission value / 100
+staff fixed earning = commission value x eligible paid booking count
+owner net = gross revenue - platform earning - total staff earning
+unpaid balance = staff earning - staff payout amount
+```
+
+Visibility:
+
+* Admin sees all revenue split and payout data.
+* Owner sees only own business revenue and can record payouts only for own class/staff assignments.
+* Staff sees only own earnings and payout status.
+* Customer pages must not show platform margin, staff commission, owner net, or payout data.
+
+Payment mode:
+
+* Dummy paid bookings count for staging analytics.
+* Razorpay remains deferred.
+* `staff_payouts` is not the same as customer `payments`.
+
+Future limitation:
+
+* MVP earnings are dynamic. Margin or commission edits recalculate displayed earnings. Add snapshotting before real Razorpay settlement or production payout accounting.
+
+---
+
+# 30B. NF-1 Access And Operations Foundation Addendum
+
+NF-1 begins the access/operations expansion by adding a permission foundation before sponsors, venues, branding, and notifications.
+
+SQL required:
+
+```text
+supabase/nf1-access-operations-foundation.sql
+```
+
+Database changes:
+
+* `permission_definitions` stores stable permission keys.
+* `platform_roles`, `platform_role_permissions`, and `platform_users` support VibePass Interface presets.
+* `business_roles`, `business_role_permissions`, `business_users`, and `business_user_invites` support Owner Studio presets, custom roles, users, and invites.
+* `has_platform_permission(permission_key)` and `has_business_permission(business_id, permission_key)` expose database-side permission checks.
+
+New routes:
+
+* Owner Studio: `/owner/users`
+* VibePass Interface: `/admin/access`
+* APIs: `/api/owner/users`, `/api/owner/roles`, `/api/admin/access`
+
+Access flow:
+
+```text
+profiles.role = coarse portal gate
+platform_users/business_users = portal-specific permission source
+role_permissions = stable permission keys
+API helper = lib/accessControl.ts
+```
+
+Compatibility:
+
+* Existing staff invite links still use `/staff/invite/[token]`.
+* Accepting a staff invite now activates the matching `business_users` row when the NF-1 SQL exists.
+* Customer booking and dummy payment flows are unchanged.
+* Razorpay remains deferred.
+
+Current limitation:
+
+* Dedicated non-staff business-user invite acceptance is not yet built. The current invite bridge is staff-compatible and sufficient for Instructor/Management access.
+
+---
+
+# 30C. NF-1B Operations Modules Addendum
+
+NF-1B implements the venues, sponsors, branding, and in-app notification foundation.
+
+SQL required:
+
+```text
+supabase/nf1b-operations-modules.sql
+```
+
+Database changes:
+
+* `venues` and `class_venues` store reusable business/global venues.
+* `classes.venue_id`, `venue_cost_currency`, and `venue_cost_note` link selected venues into class profitability.
+* `sponsors` and `class_sponsors` store sponsor directory records and per-class sponsorships.
+* `businesses` stores optional public display name, tagline, colors, and cover image URL.
+* `notifications` stores in-app portal notifications with read state.
+
+New routes:
+
+* Owner Studio: `/owner/venues`, `/owner/sponsors`
+* Staff Portal: `/staff/venues`
+* VibePass Interface: `/admin/venues`, `/admin/sponsors`
+* APIs: `/api/owner/venues`, `/api/admin/venues`, `/api/staff/venues`, `/api/owner/sponsors`, `/api/admin/sponsors`, `/api/classes/[id]/sponsors`, `/api/notifications`
+
+Visibility:
+
+* Owner venues/sponsors are business-scoped.
+* Admin global venues can be shown to all businesses.
+* Staff venue list is view-only and scoped to linked business plus global active venues.
+* Public class sponsor display hides financial values.
+* Branding falls back to existing VibePass artwork when fields are empty.
+
+Current limitation:
+
+* Notification event emitters are not wired into every workflow yet; this slice provides database/API/UI foundation.
+* Inline sponsor/venue creation from class forms is deferred.
+
+---
+
 # 31. Do Not Do Yet
 
 Do not build these in this task:
@@ -2189,3 +2324,12 @@ After implementation:
 - explain how cross-portal data linkage was handled
 - stop and ask me to test
 ```
+# NF-0F Finance Update — 2026-06-05
+
+Phase 11 safety/storage/reporting flows are unchanged. NF-0F adds a finance calculation source of truth and snapshot architecture:
+
+- `lib/finance` owns money rounding, revenue, commission, tax, break-even, payout status, and snapshot recalculation.
+- `supabase/nf0f-finance-snapshots.sql` adds booking/class/staff finance snapshot tables.
+- Booking create, class create/edit/cancel/delete, expenses, sponsors, and staff payouts trigger recalculation.
+- Owner/Staff financial values use business operating currency only.
+- SQL revenue views remain read-only reporting mirrors and should not be extended as primary business logic.

@@ -7,6 +7,17 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function isSchemaMissing(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("relation")
+  );
+}
+
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -24,7 +35,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { email, role, businessId } = await req.json().catch(() => ({}));
+  const { email, role, businessId, userGroup } = await req.json().catch(() => ({}));
   if (!email || !businessId) {
     return NextResponse.json({ error: "Email and businessId are required." }, { status: 400 });
   }
@@ -41,12 +52,13 @@ export async function POST(req: Request) {
   }
 
   // Create invite row (UUID token, 7-day expiry)
+  const inviteRole = userGroup === "management" ? "management" : role ?? "instructor";
   const { data: invite, error: inviteError } = await supabaseAdmin
     .from("staff_invites")
     .insert({
       business_id: businessId,
       email: email.trim().toLowerCase(),
-      role: role ?? "instructor",
+      role: inviteRole,
       invited_by: user.id,
     })
     .select("token")
@@ -62,7 +74,52 @@ export async function POST(req: Request) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const inviteUrl = `${appUrl}/staff/invite/${invite.token}`;
 
+  let accessWarning: string | null = null;
+  const defaultRoleKey = userGroup === "management" ? "management" : "instructor";
+  const { data: defaultRole, error: roleError } = await supabaseAdmin
+    .from("business_roles")
+    .select("id")
+    .is("business_id", null)
+    .eq("role_key", defaultRoleKey)
+    .maybeSingle();
+
+  if (roleError && !isSchemaMissing(roleError)) {
+    accessWarning = roleError.message;
+  }
+
+  if (defaultRole?.id) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const [{ error: businessUserError }, { error: businessInviteError }] = await Promise.all([
+      supabaseAdmin.from("business_users").upsert(
+        {
+          business_id: businessId,
+          email: normalizedEmail,
+          business_role_id: defaultRole.id,
+          access_level: "member",
+          status: "invited",
+          invited_by: user.id,
+          invited_at: new Date().toISOString(),
+        },
+        { onConflict: "business_id,email" }
+      ),
+      supabaseAdmin.from("business_user_invites").insert({
+        business_id: businessId,
+        email: normalizedEmail,
+        business_role_id: defaultRole.id,
+        access_level: "member",
+        invited_by: user.id,
+      }),
+    ]);
+
+    if (businessUserError && !isSchemaMissing(businessUserError)) {
+      accessWarning = businessUserError.message;
+    }
+    if (businessInviteError && !isSchemaMissing(businessInviteError)) {
+      accessWarning = businessInviteError.message;
+    }
+  }
+
   // Return the URL — owner copies and shares it directly.
   // No Supabase Auth magic-link email (avoids OTP expiry conflicts with our custom token).
-  return NextResponse.json({ ok: true, inviteUrl, token: invite.token });
+  return NextResponse.json({ ok: true, inviteUrl, token: invite.token, accessWarning });
 }

@@ -40,7 +40,12 @@ export default function ClassesPage() {
   );
 
   function getBusinessName(businessId: string): string {
-    return businesses.find((b) => b.id === businessId)?.businessName ?? "Unknown Business";
+    const business = businesses.find((b) => b.id === businessId);
+    return business?.publicDisplayName ?? business?.businessName ?? "Unknown Business";
+  }
+
+  function getBusiness(businessId: string) {
+    return businesses.find((b) => b.id === businessId) ?? null;
   }
 
   function getClassInstructors(cls: (typeof classes)[number]) {
@@ -277,14 +282,19 @@ export default function ClassesPage() {
               </div>
             ) : (
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {filteredClasses.map((cls) => (
-                  <ClassCard
-                    key={cls.id}
-                    cls={cls}
-                    businessName={getBusinessName(cls.businessId)}
-                    instructors={getClassInstructors(cls)}
-                  />
-                ))}
+                {filteredClasses.map((cls) => {
+                  const business = getBusiness(cls.businessId);
+                  return (
+                    <ClassCard
+                      key={cls.id}
+                      cls={cls}
+                      businessName={getBusinessName(cls.businessId)}
+                      businessLogoUrl={business?.logoUrl}
+                      businessBrandColor={business?.brandColor}
+                      instructors={getClassInstructors(cls)}
+                    />
+                  );
+                })}
               </div>
             )}
           </section>

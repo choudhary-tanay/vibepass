@@ -8,18 +8,31 @@ import { useAppStore } from "@/lib/appStore";
 import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 import { LocationInput } from "@/components/LocationInput";
 import { MultiSelect } from "@/components/CustomSelect";
-import type { ClassStatus } from "@/types";
+import type { ClassStatus, CommissionType } from "@/types";
+import {
+  calculateClassFinancialModel,
+  calculateStaffCommission,
+  getPlatformMarginPercent,
+} from "@/lib/finance";
 
 const CATEGORIES = [
   "Yoga", "Fitness", "Pilates", "Dance", "Martial Arts",
   "Swimming", "Cycling", "Meditation", "Wellness", "Other",
 ];
+const EXPENSE_CATEGORIES = ["venue","equipment","marketing","materials","refreshments","travel","staff","miscellaneous","other"] as const;
 const DIFFICULTY_LEVELS = [
   { value: "all_levels", label: "All Levels" },
   { value: "beginner", label: "Beginner" },
   { value: "intermediate", label: "Intermediate" },
   { value: "advanced", label: "Advanced" },
 ];
+
+function sym(c: string): string {
+  if (c === "USD") return "$";
+  if (c === "AUD") return "A$";
+  if (c === "EUR") return "€";
+  return "₹";
+}
 
 function inputClass(hasError?: boolean) {
   return `w-full rounded-xl border px-4 py-3 text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-500 bg-white ${
@@ -51,6 +64,44 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
+type CommissionRule = { commissionType: CommissionType; commissionValue: string };
+
+interface DraftSponsor {
+  id: string;
+  sponsorId: string;
+  sponsorName: string;
+  sponsorEmail: string;
+  sponsorAmount: string;
+  sponsorCurrency: string;
+  paymentStatus: string;
+  showPublicly: boolean;
+  sponsorDisplayName: string;
+  sponsorMessage: string;
+}
+
+interface ClassStaffRow {
+  staff_id: string;
+  is_primary: boolean | null;
+  commission_type?: string | null;
+  commission_value?: number | null;
+  commission_percent?: number | null;
+}
+
+function defaultCommissionRule(): CommissionRule {
+  return { commissionType: "percentage", commissionValue: "0" };
+}
+
+function isSchemaColumnMissing(error: { message?: string; code?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42703" ||
+    error?.code === "42P01" ||
+    message.includes("column") ||
+    message.includes("schema cache") ||
+    message.includes("does not exist")
+  );
+}
+
 interface ClassRow {
   id: string; business_id: string; title: string; description: string;
   category: string; instructor_name: string; staff_id: string | null;
@@ -67,6 +118,28 @@ interface ClassRow {
   featured_request_note: string | null;
   featured_requested_at: string | null;
   age_suitability: string | null;
+  venue_id?: string | null;
+  venue_name?: string | null;
+  venue_cost?: number | null;
+  venue_note?: string | null;
+  venue_cost_currency?: string | null;
+  venue_cost_note?: string | null;
+  tax_type?: string | null;
+  tax_value?: number | null;
+  expected_bookings?: number | null;
+  currency?: string | null;
+}
+
+interface VenueRow {
+  id: string;
+  venue_name: string;
+  address?: string | null;
+  location_type: string;
+  capacity?: number | null;
+  default_cost: number;
+  currency: string;
+  visibility: string;
+  notes?: string | null;
 }
 
 export default function EditClassPage() {
@@ -78,6 +151,8 @@ export default function EditClassPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [confirmedBookings, setConfirmedBookings] = useState(0);
+  const [eligiblePaidBookings, setEligiblePaidBookings] = useState(0);
+  const [grossRevenue, setGrossRevenue] = useState(0);
 
   const [title, setTitle] = useState("");
   const [tagline, setTagline] = useState("");
@@ -91,6 +166,7 @@ export default function EditClassPage() {
   const [ageSuitability, setAgeSuitability] = useState("");
   const [staffId, setStaffId] = useState("");
   const [staffIds, setStaffIds] = useState<string[]>([]);
+  const [commissionRules, setCommissionRules] = useState<Record<string, CommissionRule>>({});
   const [instructorName, setInstructorName] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -111,6 +187,8 @@ export default function EditClassPage() {
   >("none");
   const [featureRequestNote, setFeatureRequestNote] = useState("");
 
+  const [currency, setCurrency] = useState("INR");
+
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -121,6 +199,43 @@ export default function EditClassPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // NF-0C profitability fields
+  const [venueId, setVenueId] = useState("");
+  const [venueName, setVenueName] = useState("");
+  const [venueCost, setVenueCost] = useState("0");
+  const [venueNote, setVenueNote] = useState("");
+  const [taxType, setTaxType] = useState("none");
+  const [taxValue, setTaxValue] = useState("0");
+  const [expectedBookings, setExpectedBookings] = useState("");
+  const [fixedClassCosts, setFixedClassCosts] = useState<Record<string, string>>({});
+  const [venues, setVenues] = useState<VenueRow[]>([]);
+  const [venuesError, setVenuesError] = useState("");
+
+  // Saved expenses for this class
+  const [savedExpenses, setSavedExpenses] = useState<Array<{
+    id: string; category: string; name: string; amount: string | number; note: string;
+  }>>([]);
+  const [newExpenses, setNewExpenses] = useState<Array<{
+    id: string; category: string; name: string; amount: string; note: string;
+  }>>([]);
+  const [savingExpenses, setSavingExpenses] = useState(false);
+
+  // Sponsors for this class
+  const [savedSponsors, setSavedSponsors] = useState<Array<{
+    id: string;
+    sponsor_id?: string | null;
+    sponsor_amount: number;
+    sponsor_currency: string;
+    payment_status: string;
+    show_sponsor_publicly: boolean;
+    sponsor_display_name?: string | null;
+    sponsor_message?: string | null;
+    sponsors?: { sponsor_name: string } | null;
+  }>>([]);
+  const [newSponsors, setNewSponsors] = useState<DraftSponsor[]>([]);
+  const [existingSponsors, setExistingSponsors] = useState<Array<{id: string; sponsor_name: string}>>([]);
+  const [savingSponsors, setSavingSponsors] = useState(false);
+
   const activeStaff = currentBusiness
     ? staff.filter((s) => s.businessId === currentBusiness.id && s.status === "active")
     : [];
@@ -129,6 +244,57 @@ export default function EditClassPage() {
   const selectedInstructorNames = selectedStaffIds
     .map((memberId) => activeStaff.find((member) => member.id === memberId)?.name)
     .filter((name): name is string => Boolean(name));
+  const classPrice = Number(price) || 0;
+  const platformMarginPercent = getPlatformMarginPercent({
+    platform_margin_percent: currentBusiness?.platformMarginPercent ?? null,
+    platform_margin: currentBusiness?.platformMargin ?? null,
+  });
+  const revenueBasis = grossRevenue > 0 ? grossRevenue : classPrice * eligiblePaidBookings;
+  const venueCostNum = Number(venueCost) || 0;
+  const savedExpensesTotal = savedExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const newExpensesTotal = newExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const expensesTotal = savedExpensesTotal + newExpensesTotal;
+  const savedSponsorTotal = savedSponsors.reduce((sum, s) => sum + (s.sponsor_amount ?? 0), 0);
+  const newSponsorTotal = newSponsors.reduce((sum, s) => sum + (Number(s.sponsorAmount) || 0), 0);
+  const sponsorTotal = savedSponsorTotal + newSponsorTotal;
+
+  const taxNum = Number(taxValue) || 0;
+  const previewStaffCommissions = selectedStaffIds.map((memberId) => {
+    const rule = commissionRules[memberId] ?? defaultCommissionRule();
+    return {
+      staffId: memberId,
+      commissionType: rule.commissionType,
+      commissionValue: Number(rule.commissionValue) || 0,
+      fixedClassCost: Number(fixedClassCosts[memberId]) || 0,
+    };
+  });
+  const financialPreview = calculateClassFinancialModel({
+    price: classPrice,
+    capacity: Number(capacity) || 0,
+    confirmedBookings,
+    paidBookings: eligiblePaidBookings,
+    grossRevenue: revenueBasis,
+    platformMarginPercent,
+    staffCommissions: previewStaffCommissions,
+    venueCost: venueCostNum,
+    additionalExpenses: expensesTotal,
+    sponsorIncome: sponsorTotal,
+    taxType,
+    taxValue: taxNum,
+    expectedBookings,
+  });
+  const estimatedPlatform = financialPreview.platformFee;
+  const estimatedStaffTotal = financialPreview.staffCommission;
+  const estimatedOwnerNet = revenueBasis - estimatedPlatform - estimatedStaffTotal;
+  const fixedClassCostTotal = financialPreview.staffFixedCost;
+  const actTaxAmount = financialPreview.taxAmount;
+  const finalOwnerEarning = financialPreview.netProfit;
+  const estBookingsNum = financialPreview.estimatedBookings;
+  const estGross = financialPreview.estimatedGrossRevenue;
+  const estFinalEarning = financialPreview.estimatedNetProfit;
+  const breakEvenCount = financialPreview.breakEvenBookings;
+  const perBookingNet = financialPreview.netRevenuePerBooking;
+  const selectedVenue = venues.find((venue) => venue.id === venueId);
 
   useEffect(() => {
     async function load() {
@@ -147,24 +313,56 @@ export default function EditClassPage() {
       const row = data as ClassRow;
       setCls(row);
 
-      // Count confirmed bookings
-      const [{ count }, { data: classStaffRows, error: classStaffError }] = await Promise.all([
+      const [{ data: bookingRows }, classStaffResult] = await Promise.all([
         supabase
           .from("bookings")
-          .select("id", { count: "exact" })
-          .eq("class_id", id)
-          .eq("booking_status", "confirmed"),
+          .select("id, booking_status, payment_status, amount")
+          .eq("class_id", id),
         supabase
           .from("class_staff")
-          .select("staff_id, is_primary")
+          .select("staff_id, is_primary, commission_type, commission_value, commission_percent")
           .eq("class_id", id),
       ]);
-      setConfirmedBookings(count ?? 0);
-      if (!classStaffError && classStaffRows && classStaffRows.length > 0) {
-        const orderedStaffIds = [...classStaffRows]
+
+      let classStaffRows = classStaffResult.data as ClassStaffRow[] | null;
+      if (classStaffResult.error && isSchemaColumnMissing(classStaffResult.error)) {
+        const fallback = await supabase
+          .from("class_staff")
+          .select("staff_id, is_primary, commission_percent")
+          .eq("class_id", id);
+        classStaffRows = (fallback.data as ClassStaffRow[] | null) ?? null;
+      }
+
+      const confirmedRows = (bookingRows ?? []).filter((booking) => booking.booking_status === "confirmed");
+      const paidRows = confirmedRows.filter((booking) => booking.payment_status === "paid");
+      setConfirmedBookings(confirmedRows.length);
+      setEligiblePaidBookings(paidRows.length);
+      setGrossRevenue(paidRows.reduce((sum, booking) => sum + (booking.amount ?? 0), 0));
+
+      if (classStaffRows && classStaffRows.length > 0) {
+        const orderedRows = [...classStaffRows]
           .sort((a, b) => Number(Boolean(b.is_primary)) - Number(Boolean(a.is_primary)))
-          .map((row) => row.staff_id as string);
+        const orderedStaffIds = orderedRows.map((row) => row.staff_id as string);
         setStaffIds(orderedStaffIds);
+        setCommissionRules(
+          orderedRows.reduce<Record<string, CommissionRule>>((acc, assignment) => {
+            const commissionType = assignment.commission_type === "fixed" ? "fixed" : "percentage";
+            const value = assignment.commission_value ?? assignment.commission_percent ?? 0;
+            acc[assignment.staff_id] = {
+              commissionType,
+              commissionValue: String(value),
+            };
+            return acc;
+          }, {})
+        );
+
+        // Load fixed_class_cost for each staff member
+        const fixedCosts: Record<string, string> = {};
+        for (const row of classStaffRows) {
+          const staffRow = row as typeof row & { fixed_class_cost?: number | null };
+          fixedCosts[row.staff_id] = String(staffRow.fixed_class_cost ?? 0);
+        }
+        setFixedClassCosts(fixedCosts);
       }
 
       // Pre-fill fields
@@ -181,6 +379,9 @@ export default function EditClassPage() {
       setStaffId(row.staff_id ?? "");
       if (!classStaffRows || classStaffRows.length === 0) {
         setStaffIds(row.staff_id ? [row.staff_id] : []);
+        if (row.staff_id) {
+          setCommissionRules({ [row.staff_id]: defaultCommissionRule() });
+        }
       }
       setInstructorName(row.instructor_name);
       setDate(row.date);
@@ -200,11 +401,73 @@ export default function EditClassPage() {
       setFeatureRequested(row.featured_request_status === "requested");
       setFeatureRequestNote(row.featured_request_note ?? "");
       setImageUrl(row.image_url ?? "");
+      // Use business operating currency — class currency inherits from business
+      setCurrency(currentBusiness?.defaultCurrency ?? row.currency ?? "INR");
+
+      // Load NF-0C profitability fields (with graceful fallback for missing columns)
+      setVenueId(row.venue_id ?? "");
+      setVenueName(row.venue_name ?? "");
+      setVenueCost(String(row.venue_cost ?? 0));
+      setVenueNote(row.venue_cost_note ?? row.venue_note ?? "");
+      setTaxType(row.tax_type ?? "none");
+      setTaxValue(String(row.tax_value ?? 0));
+      setExpectedBookings(row.expected_bookings != null ? String(row.expected_bookings) : "");
+
+      // Load existing expenses for this class
+      try {
+        const expRes = await fetch(`/api/owner/classes/${id}/expenses`);
+        if (expRes.ok) {
+          const expData = await expRes.json();
+          setSavedExpenses((expData.expenses ?? []).map((e: { id: string; category: string; name: string; amount: number; note?: string | null }) => ({
+            id: e.id, category: e.category, name: e.name, amount: String(e.amount), note: e.note ?? "",
+          })));
+        }
+      } catch (_) {}
+
+      // Load class sponsors
+      try {
+        const sponsorRes = await fetch(`/api/owner/classes/${id}/sponsors`);
+        if (sponsorRes.ok) {
+          const sponsorData = await sponsorRes.json();
+          setSavedSponsors(sponsorData.sponsors ?? []);
+        }
+      } catch (_) {}
+
+      // Load business sponsors list
+      try {
+        const listRes = await fetch("/api/owner/sponsor-list");
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          setExistingSponsors(listData.sponsors ?? []);
+        }
+      } catch (_) {}
 
       setPageLoading(false);
     }
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (!currentBusiness) return;
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch(`/api/owner/venues?businessId=${currentBusiness.id}`).catch(() => null);
+      if (!response) return;
+      const data = await response.json().catch(() => ({}));
+      if (!active) return;
+      if (!response.ok) {
+        setVenuesError(data.error ?? "Saved venues could not be loaded.");
+        setVenues([]);
+        return;
+      }
+      setVenues((data.venues ?? []) as VenueRow[]);
+      setVenuesError("");
+    });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBusiness?.id]);
 
   function validate(): boolean {
     const e: Record<string, string> = {};
@@ -218,6 +481,12 @@ export default function EditClassPage() {
     else if (endTime <= startTime) e.endTime = "End time must be after start time.";
     if (price === "" || isNaN(Number(price))) e.price = "Valid price is required.";
     else if (Number(price) < 0) e.price = "Price cannot be negative.";
+    selectedStaffIds.forEach((memberId) => {
+      const rule = commissionRules[memberId] ?? defaultCommissionRule();
+      const value = Number(rule.commissionValue);
+      if (!Number.isFinite(value) || value < 0) e[`commission-${memberId}`] = "Commission must be 0 or more.";
+      if (rule.commissionType === "percentage" && value > 100) e[`commission-${memberId}`] = "Percentage cannot exceed 100.";
+    });
     if (!capacity || Number(capacity) < 1) e.capacity = "Capacity must be at least 1.";
     if (Number(capacity) < confirmedBookings) e.capacity = `Cannot reduce below ${confirmedBookings} confirmed bookings.`;
     if (!location.trim()) e.location = "Location is required.";
@@ -235,7 +504,32 @@ export default function EditClassPage() {
     setStaffIds(values);
     setStaffId(values[0] ?? "");
     setInstructorName(names.join(", "));
+    setCommissionRules((prev) => {
+      const next: Record<string, CommissionRule> = {};
+      for (const memberId of values) next[memberId] = prev[memberId] ?? defaultCommissionRule();
+      return next;
+    });
     if (errors.instructorName) setErrors((p) => ({ ...p, instructorName: "" }));
+  }
+
+  function handleVenueSelection(nextVenueId: string) {
+    const venue = venues.find((item) => item.id === nextVenueId);
+    setVenueId(nextVenueId);
+    if (!venue) return;
+    setVenueName(venue.venue_name);
+    setVenueCost(String(venue.default_cost ?? 0));
+    setVenueNote(venue.notes ?? venueNote);
+    setLocationType(venue.location_type || locationType);
+    setLocation(venue.address || location);
+    setVenueDetails(venue.address || venueDetails);
+    if (!capacity && venue.capacity) setCapacity(String(venue.capacity));
+  }
+
+  function updateCommissionRule(memberId: string, patch: Partial<CommissionRule>) {
+    setCommissionRules((prev) => ({
+      ...prev,
+      [memberId]: { ...(prev[memberId] ?? defaultCommissionRule()), ...patch },
+    }));
   }
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -322,6 +616,11 @@ export default function EditClassPage() {
         cancellation_policy: cancellationPolicy.trim() || null,
         refund_policy_summary: refundPolicySummary.trim() || null,
         status: status as ClassStatus,
+        staff_commission_percent:
+          selectedStaffIds.length > 0 &&
+          (commissionRules[selectedStaffIds[0]] ?? defaultCommissionRule()).commissionType === "percentage"
+            ? Number((commissionRules[selectedStaffIds[0]] ?? defaultCommissionRule()).commissionValue) || 0
+            : 0,
         featured,
         featured_request_status: nextFeatureRequestStatus,
         featured_request_note: featureRequestNote.trim() || null,
@@ -330,6 +629,16 @@ export default function EditClassPage() {
             ? new Date().toISOString()
             : cls.featured_requested_at,
         image_url: (newImageUrl ?? imageUrl.trim()) || null,
+        currency: currency,
+        venue_id: venueId || null,
+        venue_name: venueName.trim() || null,
+        venue_cost: Number(venueCost) || 0,
+        venue_note: venueNote.trim() || null,
+        venue_cost_currency: currency,
+        venue_cost_note: venueNote.trim() || null,
+        tax_type: taxType || "none",
+        tax_value: Number(taxValue) || 0,
+        expected_bookings: expectedBookings !== "" ? Number(expectedBookings) : null,
       })
       .eq("id", id);
 
@@ -345,21 +654,114 @@ export default function EditClassPage() {
       .eq("class_id", id);
 
     if (!deleteClassStaffError && selectedStaffIds.length > 0) {
-      const { error: insertClassStaffError } = await supabase.from("class_staff").insert(
-        selectedStaffIds.map((memberId, index) => ({
+      const classStaffRows = selectedStaffIds.map((memberId, index) => {
+        const rule = commissionRules[memberId] ?? defaultCommissionRule();
+        const value = Number(rule.commissionValue) || 0;
+        return {
           class_id: id,
           staff_id: memberId,
           is_primary: index === 0,
-        }))
-      );
-      if (insertClassStaffError) {
+          commission_type: rule.commissionType,
+          commission_value: value,
+          commission_percent: rule.commissionType === "percentage" ? value : 0,
+          fixed_class_cost: Number(fixedClassCosts[memberId]) || 0,
+        };
+      });
+      const { error: insertClassStaffError } = await supabase.from("class_staff").insert(classStaffRows);
+      if (insertClassStaffError && isSchemaColumnMissing(insertClassStaffError)) {
+        const { error: fallbackInsertClassStaffError } = await supabase.from("class_staff").insert(
+          classStaffRows.map(({ class_id, staff_id, is_primary, commission_percent }) => ({
+            class_id,
+            staff_id,
+            is_primary,
+            commission_percent,
+          }))
+        );
+        if (fallbackInsertClassStaffError && !isSchemaColumnMissing(fallbackInsertClassStaffError)) {
+          console.error("Failed to save class instructors:", fallbackInsertClassStaffError);
+        }
+      }
+      if (insertClassStaffError && !isSchemaColumnMissing(insertClassStaffError)) {
         console.error("Failed to save class instructors:", insertClassStaffError);
       }
     } else if (deleteClassStaffError && !deleteClassStaffError.message.toLowerCase().includes("does not exist")) {
       console.error("Failed to update class instructors:", deleteClassStaffError);
     }
 
+    // Save new expenses after class update
+    if (newExpenses.length > 0) {
+      setSavingExpenses(true);
+      for (const expense of newExpenses) {
+        if (!expense.name.trim()) continue;
+        try {
+          await fetch(`/api/owner/classes/${id}/expenses`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: expense.category, name: expense.name.trim(), amount: Number(expense.amount) || 0, note: expense.note.trim() || undefined }),
+          });
+        } catch (_) {}
+      }
+      setSavingExpenses(false);
+      setNewExpenses([]);
+      // Reload saved expenses
+      const expRes = await fetch(`/api/owner/classes/${id}/expenses`);
+      if (expRes.ok) {
+        const expData = await expRes.json();
+        setSavedExpenses((expData.expenses ?? []).map((e: { id: string; category: string; name: string; amount: number; note?: string | null }) => ({
+          id: e.id, category: e.category, name: e.name, amount: String(e.amount), note: e.note ?? "",
+        })));
+      }
+    }
+
+    // Save new sponsors
+    if (newSponsors.length > 0) {
+      setSavingSponsors(true);
+      for (const sponsor of newSponsors) {
+        if (!sponsor.sponsorName.trim() && !sponsor.sponsorId) continue;
+        const amount = Number(sponsor.sponsorAmount) || 0;
+        if (amount === 0) continue;
+        try {
+          await fetch(`/api/owner/classes/${id}/sponsors`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sponsorId: sponsor.sponsorId || undefined,
+              sponsorName: sponsor.sponsorName.trim(),
+              sponsorAmount: amount,
+              sponsorCurrency: sponsor.sponsorCurrency || "INR",
+              paymentStatus: sponsor.paymentStatus || "expected",
+              showSponsorPublicly: sponsor.showPublicly,
+              sponsorDisplayName: sponsor.sponsorDisplayName.trim() || undefined,
+              sponsorMessage: sponsor.sponsorMessage.trim() || undefined,
+            }),
+          });
+        } catch (_) {}
+      }
+      setSavingSponsors(false);
+      setNewSponsors([]);
+      // Reload saved sponsors
+      const r = await fetch(`/api/owner/classes/${id}/sponsors`);
+      if (r.ok) { const d = await r.json(); setSavedSponsors(d.sponsors ?? []); }
+    }
+
+    await fetch(`/api/finance/recalculate/class/${id}`, { method: "POST" }).catch(() => null);
     router.push("/owner/classes");
+  }
+
+  async function handleDeleteExpense(expenseId: string) {
+    try {
+      const res = await fetch(`/api/owner/expenses/${expenseId}`, { method: "DELETE" });
+      if (res.ok) {
+        setSavedExpenses((prev) => prev.filter((e) => e.id !== expenseId));
+      }
+    } catch (_) {}
+  }
+
+  async function handleDeleteSponsor(csId: string) {
+    try {
+      const res = await fetch(`/api/owner/classes/${id}/sponsors?csId=${csId}`, { method: "DELETE" });
+      if (res.ok) setSavedSponsors(prev => prev.filter(s => s.id !== csId));
+    } catch (_) {}
   }
 
   if (pageLoading) {
@@ -494,6 +896,89 @@ export default function EditClassPage() {
                 </Field>
               </div>
 
+              {selectedStaffIds.length > 0 && (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <p className="text-sm font-black text-slate-900">Instructor commissions</p>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Current estimate uses {eligiblePaidBookings} eligible paid booking{eligiblePaidBookings !== 1 ? "s" : ""}.
+                      </p>
+                    </div>
+                    <p className={`text-xs font-black ${estimatedOwnerNet < 0 ? "text-red-600" : "text-indigo-700"}`}>
+                      Est. owner net: {sym(currency)}{(estimatedOwnerNet).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid gap-3">
+                    {selectedStaffIds.map((memberId) => {
+                      const member = activeStaff.find((item) => item.id === memberId);
+                      const rule = commissionRules[memberId] ?? defaultCommissionRule();
+                      const value = Number(rule.commissionValue) || 0;
+                      const estimated = calculateStaffCommission(
+                        { commissionType: rule.commissionType, commissionValue: value },
+                        revenueBasis,
+                        eligiblePaidBookings
+                      );
+                      const error = errors[`commission-${memberId}`];
+                      return (
+                        <div key={memberId} className="rounded-xl bg-white p-3">
+                          <div className="grid gap-3 sm:grid-cols-[1fr_9rem_9rem] sm:items-start">
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">{member?.name ?? "Instructor"}</p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-400">
+                                Est. earning {sym(currency)}{(estimated).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                            <select
+                              value={rule.commissionType}
+                              onChange={(e) => updateCommissionRule(memberId, { commissionType: e.target.value as CommissionType })}
+                              className={inputClass(false)}
+                            >
+                              <option value="percentage">Percentage</option>
+                              <option value="fixed">Fixed</option>
+                            </select>
+                            <div>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={rule.commissionType === "percentage" ? 100 : undefined}
+                                  step="0.5"
+                                  value={rule.commissionValue}
+                                  onChange={(e) => updateCommissionRule(memberId, { commissionValue: e.target.value })}
+                                  className={`${inputClass(Boolean(error))} pr-10`}
+                                />
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                                  {rule.commissionType === "percentage" ? "%" : sym(currency)}
+                                </span>
+                              </div>
+                              {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+                            </div>
+                          </div>
+                          <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                            <span className="text-xs font-semibold text-slate-500">{`Fixed class cost (${sym(currency)})`}</span>
+                            <div className="relative w-32">
+                              <input type="number" min="0" step="100"
+                                value={fixedClassCosts[memberId] ?? "0"}
+                                onChange={(e) => setFixedClassCosts((prev) => ({ ...prev, [memberId]: e.target.value }))}
+                                className={`${inputClass()} pr-8`} />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{sym(currency)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {estimatedOwnerNet < 0 && (
+                    <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                      Platform fee plus staff commissions exceed eligible revenue. Owner net will be negative.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <SectionHeader title="Event details" />
 
               <Field label="What to expect" name="whatToExpect">
@@ -537,8 +1022,16 @@ export default function EditClassPage() {
 
               <SectionHeader title="Pricing & capacity" />
 
+              {/* Currency is locked to business operating currency */}
+              <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                <svg className="h-3.5 w-3.5 shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Operating currency: <span className="font-semibold text-gray-700">{currency}</span> — set from business settings
+              </div>
+
               <div className="grid grid-cols-2 gap-5">
-                <Field label="Price (₹)" name="price" required error={errors.price} hint="0 = free">
+                <Field label={`Price (${sym(currency)})`} name="price" required error={errors.price} hint="0 = free">
                   <input type="number" min="0" value={price} onChange={(e) => setPrice(e.target.value)}
                     className={inputClass(!!errors.price)} />
                 </Field>
@@ -546,6 +1039,14 @@ export default function EditClassPage() {
                   hint={hasBookings ? `Min: ${confirmedBookings} (confirmed bookings)` : undefined}>
                   <input type="number" min={confirmedBookings} value={capacity} onChange={(e) => setCapacity(e.target.value)}
                     className={inputClass(!!errors.capacity)} />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <Field label="Expected bookings" name="expectedBookings" hint="For profit estimates. Defaults to capacity if not set.">
+                  <input id="expectedBookings" type="number" min="0" value={expectedBookings}
+                    onChange={(e) => setExpectedBookings(e.target.value)}
+                    placeholder={capacity || "e.g. 10"} className={inputClass()} />
                 </Field>
               </div>
 
@@ -578,6 +1079,80 @@ export default function EditClassPage() {
                 </Field>
               )}
 
+              <SectionHeader title="Venue and costs" />
+
+              {venues.length > 0 && (
+                <Field label="Saved venue" name="venueId" hint="Uses business/global venue defaults; class-specific costs can still be edited.">
+                  <select
+                    id="venueId"
+                    value={venueId}
+                    onChange={(e) => handleVenueSelection(e.target.value)}
+                    className={inputClass()}
+                  >
+                    <option value="">Manual venue</option>
+                    {venues.map((venue) => (
+                      <option key={venue.id} value={venue.id}>
+                        {venue.venue_name} {venue.visibility === "global" ? "(global)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {venuesError && (
+                <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                  {venuesError}
+                </p>
+              )}
+              {selectedVenue && (
+                <div className="rounded-2xl bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800">
+                  Default: {selectedVenue.currency} {Number(selectedVenue.default_cost ?? 0).toLocaleString("en-IN")} / capacity {selectedVenue.capacity ?? "n/a"}
+                </div>
+              )}
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Venue name" name="venueName" hint="Studio or venue name">
+                  <input id="venueName" type="text" value={venueName}
+                    onChange={(e) => setVenueName(e.target.value)}
+                    placeholder="e.g. Studio A" className={inputClass()} />
+                </Field>
+                <Field label={`Venue cost (${sym(currency)})`} name="venueCost" hint="Cost to rent this venue for the class">
+                  <div className="relative">
+                    <input id="venueCost" type="number" min="0" step="100" value={venueCost}
+                      onChange={(e) => setVenueCost(e.target.value)}
+                      placeholder="e.g. 2000" className={`${inputClass()} pr-8`} />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{sym(currency)}</span>
+                  </div>
+                </Field>
+              </div>
+              <Field label="Venue note" name="venueNote">
+                <input id="venueNote" type="text" value={venueNote}
+                  onChange={(e) => setVenueNote(e.target.value)}
+                  placeholder="e.g. Includes AV equipment" className={inputClass()} />
+              </Field>
+
+              <SectionHeader title="Tax estimate" />
+              <p className="text-sm text-gray-400">For profitability planning only. Not shown to customers.</p>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Tax type" name="taxType">
+                  <select id="taxType" value={taxType} onChange={(e) => setTaxType(e.target.value)} className={inputClass()}>
+                    <option value="none">None</option>
+                    <option value="percentage">Percentage (%)</option>
+                    <option value="fixed">{`Fixed amount (${sym(currency)})`}</option>
+                  </select>
+                </Field>
+                {taxType !== "none" && (
+                  <Field label={taxType === "percentage" ? "Tax rate (%)" : `Tax amount (${sym(currency)})`} name="taxValue">
+                    <div className="relative">
+                      <input id="taxValue" type="number" min="0" step="0.5" value={taxValue}
+                        onChange={(e) => setTaxValue(e.target.value)} className={`${inputClass()} pr-8`} />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                        {taxType === "percentage" ? "%" : sym(currency)}
+                      </span>
+                    </div>
+                  </Field>
+                )}
+              </div>
+
               <SectionHeader title="Policies" />
 
               <Field label="Cancellation policy" name="cancellationPolicy">
@@ -586,6 +1161,254 @@ export default function EditClassPage() {
               <Field label="Refund policy summary" name="refundPolicySummary">
                 <textarea value={refundPolicySummary} onChange={(e) => setRefundPolicySummary(e.target.value)} rows={2} className={inputClass()} />
               </Field>
+
+              <SectionHeader title="Additional expenses" />
+              {savedExpenses.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase text-slate-400">Saved expenses</p>
+                  {savedExpenses.map((expense) => (
+                    <div key={expense.id} className="flex items-center gap-3 rounded-xl bg-gray-50 p-3">
+                      <span className="w-24 text-xs capitalize text-gray-500">{expense.category}</span>
+                      <span className="flex-1 text-sm font-medium text-gray-800">{expense.name}</span>
+                      <span className="text-sm font-bold">{sym(currency)}{Number(expense.amount).toLocaleString("en-IN")}</span>
+                      <button type="button" onClick={() => handleDeleteExpense(expense.id)}
+                        className="text-xs font-bold text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {newExpenses.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase text-slate-400">New expenses (will be saved on update)</p>
+                  {newExpenses.map((expense) => (
+                    <div key={expense.id} className="grid gap-2 rounded-xl bg-indigo-50/40 p-3 sm:grid-cols-[7rem_1fr_6rem_auto]">
+                      <select value={expense.category}
+                        onChange={(e) => setNewExpenses((prev) => prev.map((item) => item.id === expense.id ? { ...item, category: e.target.value } : item))}
+                        className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900">
+                        {EXPENSE_CATEGORIES.map((cat) => <option key={cat} value={cat} className="capitalize">{cat}</option>)}
+                      </select>
+                      <input type="text" placeholder="Expense name" value={expense.name}
+                        onChange={(e) => setNewExpenses((prev) => prev.map((item) => item.id === expense.id ? { ...item, name: e.target.value } : item))}
+                        className="rounded-xl border border-gray-200 bg-white px-2 py-2 text-sm text-gray-900" />
+                      <div className="relative">
+                        <input type="number" min="0" placeholder="0" value={expense.amount}
+                          onChange={(e) => setNewExpenses((prev) => prev.map((item) => item.id === expense.id ? { ...item, amount: e.target.value } : item))}
+                          className="w-full rounded-xl border border-gray-200 bg-white px-2 py-2 pr-6 text-sm text-gray-900" />
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">{sym(currency)}</span>
+                      </div>
+                      <button type="button" onClick={() => setNewExpenses((prev) => prev.filter((item) => item.id !== expense.id))}
+                        className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button"
+                onClick={() => setNewExpenses((prev) => [...prev, { id: crypto.randomUUID(), category: "other", name: "", amount: "0", note: "" }])}
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100">
+                + Add expense
+              </button>
+
+              <SectionHeader title="Sponsorship" />
+              <p className="text-sm text-gray-500">
+                Sponsor income increases profit and reduces the break-even booking requirement. Sponsors can optionally appear publicly on the class page.
+              </p>
+
+              {savedSponsors.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase text-slate-400">Saved sponsors</p>
+                  {savedSponsors.map((sponsor) => (
+                    <div key={sponsor.id} className="flex items-center gap-3 rounded-xl bg-gray-50 p-3">
+                      <span className="flex-1 text-sm font-medium text-gray-800">
+                        {sponsor.sponsors?.sponsor_name ?? `Sponsor #${sponsor.id.slice(0, 6)}`}
+                      </span>
+                      <span className="text-xs capitalize text-gray-500">{sponsor.payment_status}</span>
+                      <span className="text-sm font-bold text-emerald-700">+ {sym(sponsor.sponsor_currency || currency)}{Number(sponsor.sponsor_amount).toLocaleString("en-IN")}</span>
+                      {sponsor.show_sponsor_publicly && (
+                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600">Public</span>
+                      )}
+                      <button type="button" onClick={() => handleDeleteSponsor(sponsor.id)}
+                        className="text-xs font-bold text-red-500 hover:text-red-700">Remove</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {newSponsors.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-bold uppercase text-slate-400">New sponsors (will be saved on update)</p>
+                  {newSponsors.map((sponsor) => (
+                    <div key={sponsor.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-gray-600">Sponsor</label>
+                          <select
+                            value={sponsor.sponsorId}
+                            onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorId: e.target.value, sponsorName: e.target.value ? "" : s.sponsorName } : s))}
+                            className={inputClass(false)}
+                          >
+                            <option value="">— New sponsor —</option>
+                            {existingSponsors.map(es => (
+                              <option key={es.id} value={es.id}>{es.sponsor_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {!sponsor.sponsorId && (
+                          <div>
+                            <label className="mb-1 block text-xs font-bold text-gray-600">Sponsor name *</label>
+                            <input
+                              type="text"
+                              value={sponsor.sponsorName}
+                              onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorName: e.target.value } : s))}
+                              placeholder="e.g. Acme Corp"
+                              className={inputClass(false)}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-gray-600">Sponsorship amount ({sym(currency)})</label>
+                          <div className="relative">
+                            <input
+                              type="number" min="0" step="100"
+                              value={sponsor.sponsorAmount}
+                              onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorAmount: e.target.value } : s))}
+                              placeholder="e.g. 5000"
+                              className={`${inputClass(false)} pr-10`}
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{sym(currency)}</span>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-bold text-gray-600">Payment status</label>
+                          <select
+                            value={sponsor.paymentStatus}
+                            onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, paymentStatus: e.target.value } : s))}
+                            className={inputClass(false)}
+                          >
+                            <option value="expected">Expected</option>
+                            <option value="received">Received</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={sponsor.showPublicly}
+                              onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, showPublicly: e.target.checked } : s))}
+                              className="h-4 w-4 rounded border-gray-300 text-indigo-600"
+                            />
+                            <span className="text-sm font-semibold text-gray-700">Show on class page</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {sponsor.showPublicly && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-xs font-bold text-gray-600">Public display name (optional)</label>
+                            <input
+                              type="text"
+                              value={sponsor.sponsorDisplayName}
+                              onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorDisplayName: e.target.value } : s))}
+                              placeholder="e.g. Proudly sponsored by Acme"
+                              className={inputClass(false)}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-bold text-gray-600">Sponsor message (optional)</label>
+                            <input
+                              type="text"
+                              value={sponsor.sponsorMessage}
+                              onChange={(e) => setNewSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorMessage: e.target.value } : s))}
+                              placeholder="e.g. Supporting wellness in the community"
+                              className={inputClass(false)}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setNewSponsors(prev => prev.filter(s => s.id !== sponsor.id))}
+                        className="text-xs font-bold text-red-500 hover:text-red-700"
+                      >
+                        Remove sponsor
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setNewSponsors(prev => [...prev, {
+                  id: crypto.randomUUID(),
+                  sponsorId: "",
+                  sponsorName: "",
+                  sponsorEmail: "",
+                  sponsorAmount: "0",
+                  sponsorCurrency: currency,
+                  paymentStatus: "expected",
+                  showPublicly: false,
+                  sponsorDisplayName: "",
+                  sponsorMessage: "",
+                }])}
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+              >
+                + Add Sponsor
+              </button>
+
+              {(revenueBasis > 0 || venueCostNum > 0 || expensesTotal > 0 || fixedClassCostTotal > 0 || sponsorTotal > 0) && (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5">
+                  <p className="mb-4 text-xs font-black uppercase text-indigo-600">Profitability</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-bold uppercase text-slate-400 mb-2">Actual ({eligiblePaidBookings} paid bookings)</p>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-600">Gross revenue</span><span className="font-bold">{sym(currency)}{(revenueBasis).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        {sponsorTotal > 0 && <div className="flex justify-between text-emerald-600"><span>Sponsorship income</span><span>+ {sym(currency)}{(sponsorTotal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        <div className="flex justify-between text-red-600"><span>Platform fee</span><span>− {sym(currency)}{(estimatedPlatform).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        {estimatedStaffTotal > 0 && <div className="flex justify-between text-red-600"><span>Staff commission</span><span>− {sym(currency)}{(estimatedStaffTotal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        {fixedClassCostTotal > 0 && <div className="flex justify-between text-red-600"><span>Staff fixed costs</span><span>− {sym(currency)}{(fixedClassCostTotal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        {venueCostNum > 0 && <div className="flex justify-between text-red-600"><span>Venue cost</span><span>− {sym(currency)}{(venueCostNum).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        {expensesTotal > 0 && <div className="flex justify-between text-red-600"><span>Expenses</span><span>− {sym(currency)}{(expensesTotal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        {actTaxAmount > 0 && <div className="flex justify-between text-red-600"><span>Tax</span><span>− {sym(currency)}{(actTaxAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        <div className="border-t border-indigo-200 pt-2 flex justify-between font-bold">
+                          <span>Final owner earning</span>
+                          <span className={finalOwnerEarning >= 0 ? "text-emerald-700" : "text-red-700"}>
+                            {finalOwnerEarning >= 0 ? "+" : ""}{sym(currency)}{(finalOwnerEarning).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase text-slate-400 mb-2">Estimated ({estBookingsNum} bookings)</p>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-600">Est. gross</span><span className="font-bold">{sym(currency)}{(estGross).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                        {sponsorTotal > 0 && <div className="flex justify-between text-emerald-600"><span>Sponsorship income</span><span>+ {sym(currency)}{(sponsorTotal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                        <div className="border-t border-indigo-200 pt-2 flex justify-between font-bold">
+                          <span>Est. final earning</span>
+                          <span className={estFinalEarning >= 0 ? "text-emerald-700" : "text-red-700"}>
+                            {estFinalEarning >= 0 ? "+" : ""}{sym(currency)}{(estFinalEarning).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        {breakEvenCount !== null && breakEvenCount > 0 && (
+                          <p className="text-xs text-gray-500">Break-even at {breakEvenCount} booking{breakEvenCount !== 1 ? "s" : ""}</p>
+                        )}
+                        {perBookingNet <= 0 && classPrice > 0 && (
+                          <p className="text-xs text-red-500">Break-even not achievable</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {finalOwnerEarning < 0 && revenueBasis > 0 && (
+                    <p className="mt-3 text-xs font-semibold text-red-700 bg-red-50 rounded-xl px-3 py-2">Loss at current booking count. Adjust pricing, reduce costs, or grow bookings.</p>
+                  )}
+                </div>
+              )}
 
               <SectionHeader title="Publishing" />
 
@@ -642,9 +1465,9 @@ export default function EditClassPage() {
             )}
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <button type="submit" disabled={saving || uploadingImage}
+              <button type="submit" disabled={saving || uploadingImage || savingExpenses || savingSponsors}
                 className="flex-1 rounded-full bg-blue-600 py-3.5 font-bold text-white hover:bg-blue-700 disabled:opacity-60">
-                {uploadingImage ? "Uploading image..." : saving ? "Saving..." : "Save Changes"}
+                {uploadingImage ? "Uploading image..." : savingExpenses ? "Saving expenses..." : savingSponsors ? "Saving sponsors..." : saving ? "Saving..." : "Save Changes"}
               </button>
               <Link href="/owner/classes"
                 className="rounded-full border border-gray-200 px-6 py-3.5 text-center text-sm font-bold text-gray-600 hover:bg-gray-50">

@@ -12,6 +12,24 @@ type StaffInvite = {
   role: string | null;
 };
 
+function isSchemaMissing(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("relation")
+  );
+}
+
+function userGroupForInviteRole(role: string | null) {
+  const normalized = role?.toLowerCase() ?? "";
+  return normalized.includes("manager") || normalized.includes("management")
+    ? "management"
+    : "instructor";
+}
+
 async function ensureStaffRecordForInvite(
   invite: StaffInvite,
   userId: string,
@@ -38,6 +56,7 @@ async function ensureStaffRecordForInvite(
     name: safeName,
     email,
     role: safeRole,
+    user_group: userGroupForInviteRole(invite.role),
   };
 
   if (existingStaff?.id) {
@@ -61,6 +80,38 @@ async function ensureStaffRecordForInvite(
     .single();
 
   return { staffId: insertedStaff?.id ?? null, error: error?.message ?? null };
+}
+
+async function activateBusinessUserForInvite(
+  invite: StaffInvite,
+  userId: string,
+  staffId: string,
+  displayName: string
+) {
+  const email = invite.email.toLowerCase().trim();
+  const { error: userError } = await supabaseAdmin
+    .from("business_users")
+    .update({
+      user_id: userId,
+      staff_id: staffId,
+      full_name: displayName.trim() || email.split("@")[0],
+      status: "active",
+      accepted_at: new Date().toISOString(),
+    })
+    .eq("business_id", invite.business_id)
+    .eq("email", email);
+
+  if (userError && !isSchemaMissing(userError)) return userError.message;
+
+  const { error: inviteError } = await supabaseAdmin
+    .from("business_user_invites")
+    .update({ accepted_at: new Date().toISOString() })
+    .eq("business_id", invite.business_id)
+    .eq("email", email)
+    .is("accepted_at", null);
+
+  if (inviteError && !isSchemaMissing(inviteError)) return inviteError.message;
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -119,6 +170,16 @@ export async function POST(req: Request) {
       { error: linkedStaff.error || "Failed to link staff invite." },
       { status: 500 }
     );
+  }
+
+  const businessUserError = await activateBusinessUserForInvite(
+    invite,
+    userId,
+    linkedStaff.staffId,
+    displayName
+  );
+  if (businessUserError) {
+    return NextResponse.json({ error: businessUserError }, { status: 500 });
   }
 
   // Mark invite as accepted after the staff record is safely linked.

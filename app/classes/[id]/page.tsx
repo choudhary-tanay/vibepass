@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
@@ -14,6 +15,13 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   advanced: "bg-red-100 text-red-600",
   all_levels: "bg-blue-100 text-blue-700",
 };
+
+interface PublicSponsor {
+  id: string;
+  displayName: string;
+  logoUrl?: string | null;
+  message?: string | null;
+}
 
 function InstructorCard({ instructor, instructorName }: {
   instructor?: Staff | null;
@@ -117,6 +125,23 @@ function InstructorCard({ instructor, instructorName }: {
 export default function ClassDetailPage() {
   const params = useParams<{ id: string }>();
   const { classes, businesses, staff: staffList, loading } = useAppStore();
+  const [publicSponsors, setPublicSponsors] = useState<PublicSponsor[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch(`/api/classes/${params.id}/sponsors`).catch(() => null);
+      if (!response?.ok) {
+        if (active) setPublicSponsors([]);
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      if (active) setPublicSponsors((data.sponsors ?? []) as PublicSponsor[]);
+    });
+    return () => {
+      active = false;
+    };
+  }, [params.id]);
 
   if (loading) {
     return (
@@ -150,6 +175,7 @@ export default function ClassDetailPage() {
   }
 
   const business = businesses.find((b) => b.id === cls.businessId);
+  const businessDisplayName = business?.publicDisplayName ?? business?.businessName ?? "Unknown Business";
   const instructors =
     cls.staffIds && cls.staffIds.length > 0
       ? cls.staffIds
@@ -251,7 +277,7 @@ export default function ClassDetailPage() {
                   <div className="rounded-[1.25rem] bg-teal-50 p-4">
                     <p className="text-xs font-black uppercase text-teal-600">Price</p>
                     <p className="mt-1 text-2xl font-black text-teal-950">
-                      {cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}
+                      {cls.price === 0 ? "Free" : `${cls.currency === "USD" ? "$" : cls.currency === "AUD" ? "A$" : cls.currency === "EUR" ? "€" : "₹"}${cls.price.toLocaleString("en-IN")}`}
                     </p>
                   </div>
                   <div className="rounded-[1.25rem] bg-indigo-50 p-4">
@@ -288,11 +314,26 @@ export default function ClassDetailPage() {
 
             {/* Hosted by */}
             <div className="flex items-center justify-between rounded-2xl bg-white px-5 py-4 shadow-sm">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Hosted by</p>
-                <Link href={`/businesses/${cls.businessId}`} className="mt-0.5 text-base font-bold text-teal-600 hover:underline">
-                  {business?.businessName ?? "Unknown Business"}
-                </Link>
+              <div className="flex min-w-0 items-center gap-3">
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-teal-50 text-sm font-black text-teal-700"
+                  style={business?.brandColor ? { backgroundColor: `${business.brandColor}18`, color: business.brandColor } : undefined}
+                >
+                  {business?.logoUrl ? (
+                    <img src={business.logoUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    businessDisplayName.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Hosted by</p>
+                  <Link href={`/businesses/${cls.businessId}`} className="mt-0.5 block truncate text-base font-bold text-teal-600 hover:underline">
+                    {businessDisplayName}
+                  </Link>
+                  {business?.brandTagline && (
+                    <p className="truncate text-xs font-semibold text-slate-400">{business.brandTagline}</p>
+                  )}
+                </div>
               </div>
               {business && (
                 <Link href={`/businesses/${cls.businessId}`} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50">
@@ -300,6 +341,31 @@ export default function ClassDetailPage() {
                 </Link>
               )}
             </div>
+
+            {publicSponsors.length > 0 && (
+              <div className="rounded-2xl bg-white p-5 shadow-sm">
+                <p className="text-xs font-black uppercase tracking-wide text-amber-600">Sponsored by</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {publicSponsors.map((sponsor) => (
+                    <div key={sponsor.id} className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white text-xs font-black text-amber-700">
+                          {sponsor.logoUrl ? (
+                            <img src={sponsor.logoUrl} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            sponsor.displayName.slice(0, 2).toUpperCase()
+                          )}
+                        </div>
+                        <p className="min-w-0 truncate font-black text-slate-900">{sponsor.displayName}</p>
+                      </div>
+                      {sponsor.message && (
+                        <p className="mt-3 text-sm leading-6 text-slate-600">{sponsor.message}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Date, time, location */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -396,7 +462,7 @@ export default function ClassDetailPage() {
               <p className="text-xs font-black uppercase text-teal-600">Book this class</p>
               <div className="mt-2 flex items-end justify-between gap-4">
                 <p className="text-4xl font-black text-slate-950">
-                  {cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}
+                  {cls.price === 0 ? "Free" : `${cls.currency === "USD" ? "$" : cls.currency === "AUD" ? "A$" : cls.currency === "EUR" ? "€" : "₹"}${cls.price.toLocaleString("en-IN")}`}
                 </p>
                 <span className={`rounded-full px-3 py-1 text-xs font-black ${
                   isFull ? "bg-red-100 text-red-700" : availableSeats <= 3 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"
@@ -446,7 +512,7 @@ export default function ClassDetailPage() {
 
               {business && (
                 <Link href={`/businesses/${business.id}`} className="mt-4 block text-center text-sm text-teal-600 hover:underline">
-                  View {business.businessName} →
+                  View {businessDisplayName} →
                 </Link>
               )}
 
@@ -473,7 +539,7 @@ export default function ClassDetailPage() {
             href={`/classes/${cls.id}/book`}
             className="block w-full rounded-xl bg-teal-600 py-3.5 text-center text-base font-black text-white hover:bg-teal-700"
           >
-            {cls.price === 0 ? "Book Now — Free" : `Book Now — ₹${cls.price.toLocaleString("en-IN")}`}
+            {cls.price === 0 ? "Book Now — Free" : `Book Now — ${cls.currency === "USD" ? "$" : cls.currency === "AUD" ? "A$" : cls.currency === "EUR" ? "€" : "₹"}${cls.price.toLocaleString("en-IN")}`}
           </Link>
         </div>
       )}

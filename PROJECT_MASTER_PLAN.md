@@ -2214,6 +2214,15 @@ These items are confirmed for Phase 14 based on the Launch Hardening Plan (June 
 - DO NOT promise automated payouts until Phase B is live.
 - Complexity: Phase A = Low. Phase B = High (Razorpay compliance required).
 
+### NF-0B Revenue Split and Staff Payout Engine
+- Implemented as an MVP accounting foundation before NF-1.
+- Scope: platform margin per business, owner gross/net revenue, per-instructor staff commission, staff paid/unpaid balances, and owner-to-staff payout records.
+- This is **not** automated platform-to-owner payout settlement and does not enable Razorpay.
+- Staff fixed commission is per eligible paid booking. Staff percentage commission is based on total eligible class revenue.
+- `staff_payouts` records actual owner-to-staff payments and is separate from customer `payments`.
+- Earnings are dynamic for MVP; margin/commission edits recalculate displayed earnings. Add snapshotting before real settlement.
+- Required SQL: `supabase/nf0b-revenue-split-payouts.sql`.
+
 ### 14.5 SMS / WhatsApp Notifications
 - Currently email-only via Resend. SMS/WhatsApp adds reach for the 10–30 age group.
 - Provider candidates: MSG91, Twilio, Gupshup (WhatsApp Business API).
@@ -3735,3 +3744,77 @@ Future behavior:
 - Owner-uploaded images can remain primary.
 - AI-generated fallback class images can later connect where the create-class cover artwork note appears.
 - A dedicated chart library can be considered later only if filtering, drill-down, or export needs outgrow the lightweight components.
+
+---
+
+## NF-1 Access And Operations Foundation - 2026-06-05
+
+Changed:
+
+- Added database-backed permission definitions, platform roles/users, business roles/users, and business-user invites.
+- Added VibePass Interface platform role presets: Super Admin, Support, Finance/Ops, Moderator.
+- Added Owner Studio role presets: Owner Studio Admin, Management, Instructor.
+- Added custom Owner Studio role creation with selected permission keys.
+- Added `/owner/users` for owner-side user management, invites, role preview, custom role creation, and user role/status updates.
+- Added `/admin/access` for VibePass Interface role visibility and platform role assignment.
+- Updated staff invite acceptance so accepted staff also activate matching `business_users` rows when the NF-1 SQL exists.
+- Updated staff payout marking to require `payouts.mark_paid` through `lib/accessControl.ts`.
+
+Files changed:
+
+- `supabase/nf1-access-operations-foundation.sql`
+- `lib/accessControl.ts`
+- `types/index.ts`
+- `app/api/owner/users/route.ts`
+- `app/api/owner/roles/route.ts`
+- `app/api/admin/access/route.ts`
+- `app/owner/users/page.tsx`
+- `app/admin/access/page.tsx`
+- `components/OwnerSidebar.tsx`
+- `components/AdminSidebar.tsx`
+- `app/api/owner/staff/invite/route.ts`
+- `app/api/staff/invite/register/route.ts`
+- `app/api/staff/invite/accept/route.ts`
+- `app/api/owner/staff-payouts/route.ts`
+
+How to test:
+
+1. Run `supabase/nf1-access-operations-foundation.sql`.
+2. Open `/owner/users` as an owner and verify preset roles, user list, custom role creation, and invite link creation.
+3. Accept the generated staff invite and verify `staff`, `profiles`, and `business_users` are linked.
+4. Open `/admin/access` as an admin and assign a platform role preset.
+5. Verify unauthorized users receive 403 responses from `/api/owner/users`, `/api/owner/roles`, and `/api/admin/access`.
+
+Current limitation:
+
+- Dedicated non-staff business-user invite acceptance is not built yet. Current access invites bridge through the existing staff invite flow for Instructor/Management users.
+
+## NF-1B Operations Modules - 2026-06-05
+
+Changed:
+
+- Added `supabase/nf1b-operations-modules.sql` for venues, sponsors, branding fields, and in-app notifications.
+- Added Owner Studio venue and sponsor pages.
+- Added VibePass Interface global venue management and sponsor visibility pages.
+- Added Staff Portal venue directory.
+- Added saved/global venue selection to owner class create/edit.
+- Added public class sponsor display that hides sponsor amounts from customers.
+- Added owner branding fields and applied logo/name/tagline/color/cover to portal and marketplace surfaces.
+- Added notification bell/API for Owner Studio, Staff Portal, and VibePass Interface.
+
+SQL required:
+
+1. `supabase/nf1-access-operations-foundation.sql`
+2. `supabase/nf1b-operations-modules.sql`
+
+How to test:
+
+1. Run both SQL files in order.
+2. Test `/owner/venues`, `/admin/venues`, and `/staff/venues`.
+3. Test `/owner/sponsors`, `/admin/sponsors`, and public `/classes/[id]` sponsor display.
+4. Test `/owner/settings` branding save and portal/public branding surfaces.
+5. Seed a notification row and test bell unread/read/action behavior.
+
+Current limitation:
+
+- Workflow-level notification event emitters and inline sponsor/venue creation inside class forms are deferred follow-ups.

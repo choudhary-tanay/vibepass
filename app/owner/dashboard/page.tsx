@@ -1,12 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
 import { AvatarBadge, MetricRibbon, RingGauge, TrendLine, WaveBars } from "@/components/PortalCharts";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
+
+interface FinanceDashboard {
+  financials: {
+    grossRevenue: number;
+    sponsorshipRevenue: number;
+    platformFees: number;
+    staffCosts: number;
+    netProfit: number;
+    confirmedBookings: number;
+    paidBookings: number;
+    averageOccupancy: number;
+    staffPaidAmount: number;
+    staffUnpaidBalance: number;
+  };
+  classes: Array<Record<string, unknown>>;
+}
 
 function StatusPill({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -26,6 +43,18 @@ function StatusPill({ status }: { status: string }) {
 export default function OwnerDashboardPage() {
   const { classes, bookings, staff, loading, currentBusiness } = useAppStore();
   const router = useRouter();
+  const [financeDashboard, setFinanceDashboard] = useState<FinanceDashboard | null>(null);
+
+  // Operating currency — single currency for all Owner Studio displays
+  const bizCurrency = getOperatingCurrency(currentBusiness);
+
+  useEffect(() => {
+    if (!currentBusiness) return;
+    fetch(`/api/finance/business/${currentBusiness.id}/dashboard`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (data?.financials) setFinanceDashboard(data as FinanceDashboard); })
+      .catch(() => {});
+  }, [currentBusiness?.id]);
 
   const data = useMemo(() => {
     const ownerClasses = currentBusiness
@@ -34,9 +63,6 @@ export default function OwnerDashboardPage() {
     const ownerBookings = currentBusiness
       ? bookings.filter((booking) => booking.businessId === currentBusiness.id)
       : [];
-    const confirmedBookings = ownerBookings.filter(
-      (booking) => booking.bookingStatus === "confirmed"
-    );
     const cancelledBookings = ownerBookings.filter(
       (booking) => booking.bookingStatus === "cancelled"
     );
@@ -45,23 +71,30 @@ export default function OwnerDashboardPage() {
     const activeStaff = currentBusiness
       ? staff.filter((member) => member.businessId === currentBusiness.id && member.status === "active")
       : [];
-    const totalRevenue = confirmedBookings.reduce((sum, booking) => sum + booking.amount, 0);
-    const confirmedCountByClass = confirmedBookings.reduce<Record<string, number>>((acc, booking) => {
-      acc[booking.classId] = (acc[booking.classId] ?? 0) + 1;
+
+    // Confirmed-booking counts per class from the snapshot API (class_financial_snapshots).
+    // Falls back to cls.bookedCount (live DB counter) when the snapshot is not yet loaded.
+    const snapshotByClass = new Map(
+      (financeDashboard?.classes ?? []).map((s) => [String(s.class_id), s])
+    );
+    const confirmedCountByClass = ownerClasses.reduce<Record<string, number>>((acc, cls) => {
+      const snap = snapshotByClass.get(cls.id);
+      const snapConfirmed = Number(snap?.confirmed_bookings);
+      acc[cls.id] = Number.isFinite(snapConfirmed) && snapConfirmed > 0 ? snapConfirmed : cls.bookedCount;
       return acc;
     }, {});
-    const avgOccupancy = publishedClasses.length > 0
-      ? Math.round(
-          publishedClasses.reduce((sum, cls) => {
-            return sum + (cls.capacity > 0 ? ((confirmedCountByClass[cls.id] ?? 0) / cls.capacity) * 100 : 0);
-          }, 0) / publishedClasses.length
-        )
-      : 0;
+
+    const avgOccupancy = financeDashboard?.financials.averageOccupancy ?? 0;
+    // Trend points use per-class confirmed counts from snapshot; shows booking momentum over last 6 classes
     const trendPoints = ownerClasses.slice(-6).map((cls) => Math.max(0, confirmedCountByClass[cls.id] ?? 0));
+    // Seats to sell = capacity minus confirmed bookings (from snapshot, with bookedCount fallback)
     const classBars = upcomingClasses.slice(0, 6).map((cls) => ({
       label: cls.title,
       value: Math.max(0, cls.capacity - (confirmedCountByClass[cls.id] ?? 0)),
     }));
+
+    // Staff drivers: count confirmed bookings by reading from the booking store (not financial)
+    const confirmedBookings = ownerBookings.filter((b) => b.bookingStatus === "confirmed");
     const staffDrivers = activeStaff.map((member) => {
       const assignedClassIds = new Set(
         ownerClasses
@@ -80,13 +113,24 @@ export default function OwnerDashboardPage() {
       publishedClasses,
       upcomingClasses,
       activeStaff,
-      totalRevenue,
       avgOccupancy,
       trendPoints: trendPoints.length > 0 ? trendPoints : [0, 1, 2, 1, 3, 4],
       classBars,
       staffDrivers,
+      confirmedCountByClass,
     };
-  }, [bookings, classes, currentBusiness, staff]);
+  }, [bookings, classes, currentBusiness, financeDashboard, staff]);
+
+  const revTotals = financeDashboard ? {
+    totalGross: financeDashboard.financials.grossRevenue,
+    totalPlatform: financeDashboard.financials.platformFees,
+    totalStaffEarning: financeDashboard.financials.staffCosts,
+    totalOwnerNet: financeDashboard.financials.netProfit,
+    totalStaffPaid: financeDashboard.financials.staffPaidAmount,
+    totalStaffUnpaid: financeDashboard.financials.staffUnpaidBalance,
+    totalSponsorship: financeDashboard.financials.sponsorshipRevenue,
+    eligiblePaidBookingCount: financeDashboard.financials.paidBookings,
+  } : null;
 
   if (loading) {
     return (
@@ -219,9 +263,19 @@ export default function OwnerDashboardPage() {
 
             <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <MetricRibbon label="Upcoming" value={data.upcomingClasses.length} detail="published classes" tone="indigo" />
-              <MetricRibbon label="Confirmed" value={data.confirmedBookings.length} detail="bookings" tone="emerald" />
-              <MetricRibbon label="Revenue" value={`₹${data.totalRevenue.toLocaleString("en-IN")}`} detail="confirmed GMV" tone="teal" />
-              <MetricRibbon label="Active staff" value={data.activeStaff.length} detail="class drivers" tone="amber" />
+              <MetricRibbon label="Confirmed" value={financeDashboard?.financials.confirmedBookings ?? 0} detail="snapshot bookings" tone="emerald" />
+              <MetricRibbon
+                label="Gross revenue"
+                value={formatCurrency(revTotals?.totalGross ?? 0, bizCurrency)}
+                detail="eligible paid bookings"
+                tone="teal"
+              />
+              <MetricRibbon
+                label="Owner net"
+                value={formatCurrency(revTotals?.totalOwnerNet ?? 0, bizCurrency)}
+                detail="after fees + staff"
+                tone={(revTotals?.totalOwnerNet ?? 0) < 0 ? "rose" : "amber"}
+              />
             </div>
           </div>
 
@@ -240,6 +294,34 @@ export default function OwnerDashboardPage() {
         </section>
 
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+          {revTotals && (
+            <div className="visual-panel rounded-[2rem] p-5 sm:p-6 xl:col-span-2">
+              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">
+                    Earnings split
+                  </p>
+                  <h2 className="text-2xl font-black text-slate-950 dark:text-white">
+                    Gross, fees, commissions, and payables
+                  </h2>
+                </div>
+                <Link href="/owner/staff" className="text-sm font-black text-blue-600 hover:text-blue-700">
+                  Staff payables
+                </Link>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <MetricRibbon label="Platform fees" value={formatCurrency(revTotals.totalPlatform, bizCurrency)} detail={`${currentBusiness.platformMarginPercent ?? currentBusiness.platformMargin ?? 0}% margin`} tone="sky" />
+                <MetricRibbon label="Staff earned" value={formatCurrency(revTotals.totalStaffEarning, bizCurrency)} detail="commission liability" tone="indigo" />
+                <MetricRibbon label="Staff paid" value={formatCurrency(revTotals.totalStaffPaid, bizCurrency)} detail="recorded payouts" tone="emerald" />
+                <MetricRibbon label="Unpaid staff" value={formatCurrency(revTotals.totalStaffUnpaid, bizCurrency)} detail="remaining balance" tone={revTotals.totalStaffUnpaid > 0 ? "rose" : "slate"} />
+                {revTotals.totalSponsorship > 0 && (
+                  <MetricRibbon label="Sponsorship" value={formatCurrency(revTotals.totalSponsorship, bizCurrency)} detail="class sponsors income" tone="teal" />
+                )}
+                <MetricRibbon label="Paid bookings" value={revTotals.eligiblePaidBookingCount} detail="eligible seats" tone="teal" />
+              </div>
+            </div>
+          )}
+
           <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
@@ -323,7 +405,7 @@ export default function OwnerDashboardPage() {
             ) : (
               <div className="grid gap-3">
                 {data.upcomingClasses.slice(0, 5).map((cls) => {
-                  const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
+                  const seatsLeft = Math.max(0, cls.capacity - (data.confirmedCountByClass[cls.id] ?? cls.bookedCount));
                   return (
                     <Link
                       key={cls.id}

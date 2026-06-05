@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDate } from "@/lib/utils";
+import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
 
 interface AdminBooking {
   id: string;
@@ -42,9 +43,21 @@ const paymentStatusStyles: Record<string, string> = {
   failed: "bg-red-100 text-red-600",
 };
 
+const COLUMNS: ColDef[] = [
+  { key: "customer", label: "Customer", fixed: true },
+  { key: "class", label: "Class" },
+  { key: "business", label: "Business", defaultHidden: true },
+  { key: "date", label: "Class Date" },
+  { key: "booking", label: "Booking" },
+  { key: "payment", label: "Payment" },
+  { key: "amount", label: "Amount" },
+  { key: "created", label: "Booked On", defaultHidden: true },
+];
+
 export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
 
   useEffect(() => {
     supabase
@@ -56,6 +69,16 @@ export default function AdminBookingsPage() {
         setLoading(false);
       });
   }, []);
+
+  const filtered = bookings.filter((b) => {
+    if (!q) return true;
+    const lower = q.toLowerCase();
+    return (
+      b.customer_name.toLowerCase().includes(lower) ||
+      b.customer_email.toLowerCase().includes(lower) ||
+      (b.classes?.title ?? "").toLowerCase().includes(lower)
+    );
+  });
 
   if (loading) {
     return (
@@ -72,54 +95,94 @@ export default function AdminBookingsPage() {
         <p className="mt-1 text-sm text-gray-500">{bookings.length} total bookings</p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="border-b border-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-400">
-            <tr>
-              <th className="px-6 py-4 text-left">Customer</th>
-              <th className="px-6 py-4 text-left">Class</th>
-              <th className="px-6 py-4 text-left">Business</th>
-              <th className="px-6 py-4 text-left">Date</th>
-              <th className="px-6 py-4 text-left">Amount</th>
-              <th className="px-6 py-4 text-left">Booking</th>
-              <th className="px-6 py-4 text-left">Payment</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {bookings.map((b) => (
-              <tr key={b.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4">
-                  <p className="font-medium text-gray-900">{b.customer_name}</p>
-                  <p className="text-xs text-gray-400">{b.customer_email}</p>
-                  <p className="text-xs text-gray-400">{b.customer_phone}</p>
-                </td>
-                <td className="px-6 py-4 text-gray-700">{b.classes?.title ?? "—"}</td>
-                <td className="px-6 py-4 text-gray-600">
-                  {b.classes?.businesses?.business_name ?? "—"}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {b.classes?.date ? formatDate(b.classes.date) : "—"}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {b.amount > 0 ? `₹${b.amount.toLocaleString("en-IN")}` : "Free"}
-                </td>
-                <td className="px-6 py-4">
-                  <Badge value={b.booking_status} styles={bookingStatusStyles} />
-                </td>
-                <td className="px-6 py-4">
-                  <Badge value={b.payment_status} styles={paymentStatusStyles} />
-                </td>
+      <DataTable
+        tableId="admin-bookings"
+        columns={COLUMNS}
+        searchQuery={q}
+        onSearchQuery={setQ}
+        searchPlaceholder="Search by customer or class…"
+        summary={`${filtered.length} of ${bookings.length}`}
+        emptyState={
+          filtered.length === 0 ? (
+            <div className="py-16 text-center text-sm text-gray-400">
+              No bookings found.
+            </div>
+          ) : undefined
+        }
+      >
+        {(vis) => (
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                {vis.has("customer") && <Th>Customer</Th>}
+                {vis.has("class") && <Th>Class</Th>}
+                {vis.has("business") && <Th>Business</Th>}
+                {vis.has("date") && <Th>Class Date</Th>}
+                {vis.has("booking") && <Th>Booking</Th>}
+                {vis.has("payment") && <Th>Payment</Th>}
+                {vis.has("amount") && <Th>Amount</Th>}
+                {vis.has("created") && <Th>Booked On</Th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {bookings.length === 0 && (
-          <div className="py-16 text-center text-sm text-gray-400">
-            No bookings found.
-          </div>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((b) => (
+                <tr key={b.id} className="hover:bg-gray-50">
+                  {vis.has("customer") && (
+                    <Td>
+                      <p className="font-medium text-gray-900">{b.customer_name}</p>
+                      <p className="text-xs text-gray-400">{b.customer_email}</p>
+                      <p className="text-xs text-gray-400">{b.customer_phone}</p>
+                    </Td>
+                  )}
+                  {vis.has("class") && (
+                    <Td>
+                      <span className="text-gray-700">{b.classes?.title ?? "—"}</span>
+                    </Td>
+                  )}
+                  {vis.has("business") && (
+                    <Td>
+                      <span className="text-gray-600">
+                        {b.classes?.businesses?.business_name ?? "—"}
+                      </span>
+                    </Td>
+                  )}
+                  {vis.has("date") && (
+                    <Td>
+                      <span className="text-gray-600">
+                        {b.classes?.date ? formatDate(b.classes.date) : "—"}
+                      </span>
+                    </Td>
+                  )}
+                  {vis.has("booking") && (
+                    <Td>
+                      <Badge value={b.booking_status} styles={bookingStatusStyles} />
+                    </Td>
+                  )}
+                  {vis.has("payment") && (
+                    <Td>
+                      <Badge value={b.payment_status} styles={paymentStatusStyles} />
+                    </Td>
+                  )}
+                  {vis.has("amount") && (
+                    <Td>
+                      <span className="text-gray-600">
+                        {b.amount > 0 ? `₹${b.amount.toLocaleString("en-IN")}` : "Free"}
+                      </span>
+                    </Td>
+                  )}
+                  {vis.has("created") && (
+                    <Td>
+                      <span className="text-gray-600">
+                        {new Date(b.created_at).toLocaleDateString("en-IN")}
+                      </span>
+                    </Td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
-      </div>
+      </DataTable>
     </div>
   );
 }

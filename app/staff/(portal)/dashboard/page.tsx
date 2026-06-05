@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { formatDate, formatTime } from "@/lib/utils";
 import { StaffOnboardingChecklist } from "@/components/StaffOnboardingChecklist";
+import { formatCurrency } from "@/lib/currency";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,14 +25,16 @@ export default async function StaffDashboardPage() {
   // Use admin client to bypass RLS for cross-table joins
   const { data: staffRow } = await supabaseAdmin
     .from("staff")
-    .select("id, business_id, role, user_group, image_url, bio, public_profile_visible, businesses(business_name)")
+    .select("id, business_id, role, user_group, image_url, bio, public_profile_visible, businesses(business_name, default_currency)")
     .or(`user_id.eq.${user.id},email.eq.${user.email ?? ""}`)
     .eq("status", "active")
     .maybeSingle();
 
   const businessId = staffRow?.business_id;
-  const businessName =
-    (staffRow?.businesses as { business_name?: string } | null)?.business_name ?? "Your Studio";
+  const businessData = staffRow?.businesses as { business_name?: string; default_currency?: string } | null;
+  const businessName = businessData?.business_name ?? "Your Studio";
+  // Single operating currency — show business currency only, no conversion
+  const bizCurrency = businessData?.default_currency ?? "INR";
 
   const isManagement = staffRow?.user_group === "management";
 
@@ -45,6 +48,9 @@ export default async function StaffDashboardPage() {
     end_time: string;
     booked_count: number;
     capacity: number;
+    snapshot_confirmed_bookings?: number;
+    snapshot_capacity?: number;
+    occupancy_percent?: number;
     location: string;
   }> = [];
 
@@ -81,6 +87,22 @@ export default async function StaffDashboardPage() {
         .filter((cls) => cls.staff_id === staffRow?.id || classStaffClassIds.has(cls.id))
         .slice(0, 6);
     }
+    if (upcomingClasses.length > 0) {
+      const { data: snapshotRows } = await supabaseAdmin
+        .from("class_financial_snapshots")
+        .select("class_id, confirmed_bookings, capacity, occupancy_percent")
+        .in("class_id", upcomingClasses.map((cls) => cls.id));
+      const snapshotByClass = new Map((snapshotRows ?? []).map((row) => [String(row.class_id), row]));
+      upcomingClasses = upcomingClasses.map((cls) => {
+        const snapshot = snapshotByClass.get(cls.id);
+        return {
+          ...cls,
+          snapshot_confirmed_bookings: Number(snapshot?.confirmed_bookings ?? cls.booked_count),
+          snapshot_capacity: Number(snapshot?.capacity ?? cls.capacity),
+          occupancy_percent: Number(snapshot?.occupancy_percent ?? 0),
+        };
+      });
+    }
   }
 
   const pendingCount = businessId
@@ -101,6 +123,25 @@ export default async function StaffDashboardPage() {
           .eq("staff_id", staffRow?.id ?? "")
         ).count ?? 0
     : 0;
+
+  let earningSnapshots: Array<{ earning_amount?: number | null; paid_amount?: number | null; unpaid_amount?: number | null }> = [];
+  if (staffRow?.id) {
+    const { data } = await supabaseAdmin
+      .from("staff_earning_snapshots")
+      .select("earning_amount, paid_amount, unpaid_amount")
+      .eq("staff_id", staffRow.id);
+    earningSnapshots = data ?? [];
+  }
+  const totalEarned = earningSnapshots.length > 0
+    ? earningSnapshots.reduce((sum, earning) => sum + Number(earning.earning_amount ?? 0), 0)
+    : 0;
+  const totalPaid = earningSnapshots.length > 0
+    ? earningSnapshots.reduce((sum, earning) => sum + Number(earning.paid_amount ?? 0), 0)
+    : 0;
+  const unpaidBalance = earningSnapshots.length > 0
+    ? earningSnapshots.reduce((sum, earning) => sum + Number(earning.unpaid_amount ?? 0), 0)
+    : 0;
+
 
   return (
     <main className="min-h-screen px-4 py-8 sm:px-6">
@@ -133,6 +174,34 @@ export default async function StaffDashboardPage() {
             </div>
           )}
         </div>
+
+        {staffRow && (
+          <section className="mb-6 rounded-3xl bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-indigo-500">My earnings</p>
+                <h2 className="mt-1 text-xl font-black text-slate-900">Commission and payout status</h2>
+              </div>
+              <Link href="/staff/classes" className="text-sm font-black text-indigo-600 hover:text-indigo-700">
+                View class earnings
+              </Link>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-xs font-black uppercase text-indigo-500">Total earned</p>
+                <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(totalEarned, bizCurrency)}</p>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 p-4">
+                <p className="text-xs font-black uppercase text-emerald-600">Paid</p>
+                <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(totalPaid, bizCurrency)}</p>
+              </div>
+              <div className={`rounded-2xl p-4 ${unpaidBalance > 0 ? "bg-red-50" : "bg-slate-50"}`}>
+                <p className={`text-xs font-black uppercase ${unpaidBalance > 0 ? "text-red-600" : "text-slate-500"}`}>Unpaid</p>
+                <p className="mt-1 text-2xl font-black text-slate-900">{formatCurrency(unpaidBalance, bizCurrency)}</p>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Quick actions */}
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -221,10 +290,9 @@ export default async function StaffDashboardPage() {
             </div>
             <div className="space-y-3">
               {upcomingClasses.map((cls) => {
-                const pct =
-                  cls.capacity > 0
-                    ? Math.round((cls.booked_count / cls.capacity) * 100)
-                    : 0;
+                const pct = Number(cls.occupancy_percent ?? 0);
+                const confirmed = Number(cls.snapshot_confirmed_bookings ?? cls.booked_count);
+                const capacity = Number(cls.snapshot_capacity ?? cls.capacity);
                 return (
                   <div
                     key={cls.id}
@@ -239,7 +307,7 @@ export default async function StaffDashboardPage() {
                     </div>
                     <div className="ml-4 flex flex-col items-end gap-1.5">
                       <span className="text-sm font-bold text-slate-700">
-                        {cls.booked_count}/{cls.capacity}
+                        {confirmed}/{capacity}
                       </span>
                       <div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-100">
                         <div

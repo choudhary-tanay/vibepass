@@ -448,6 +448,22 @@ All AI features are P3. Build only after the core platform is stable, admin is v
 
 ---
 
+### Phase NF-1 Detail — Access, Operations, Sponsors, Venues, Branding, Notifications
+
+| Field | Content |
+| --- | --- |
+| **Phase name** | `NF-1: Access, Operations, Sponsors, Venues, Branding, and In-App Notifications Expansion` |
+| **Goal** | Upgrade VibePass from coarse `profile.role` checks into a database-backed operations platform with platform permissions, Owner Studio roles, business users, sponsors, venues, branding, and in-app notification foundations. |
+| **Features included** | Phase A permission foundation, Phase B Owner Studio user management starter, Phase C VibePass Interface access starter, Phase D venue management, Phase E sponsor management, Phase F white-label branding, Phase G notification foundation, Phase H docs/local QA updates. |
+| **Features excluded from this slice** | Razorpay enablement, payment mode changes, manual deploy, email/SMS/push notifications, real platform-to-owner payouts. |
+| **Routes affected now** | Added `/owner/users`, `/admin/access`, `/owner/venues`, `/admin/venues`, `/staff/venues`, `/owner/sponsors`, `/admin/sponsors`; updated Owner/Admin/Staff sidebars, Owner Settings, owner class create/edit, marketplace class cards, class detail, and public business profile. |
+| **API routes affected now** | Added `/api/owner/users`, `/api/owner/roles`, `/api/admin/access`, `/api/owner/venues`, `/api/admin/venues`, `/api/staff/venues`, `/api/owner/sponsors`, `/api/admin/sponsors`, `/api/classes/[id]/sponsors`, `/api/notifications`; updated staff invite routes and staff payout API permission behavior. |
+| **Supabase tables affected now** | New access tables plus `venues`, `class_venues`, `sponsors`, `class_sponsors`, `notifications`; existing `businesses` gains branding fields; existing `classes` gains venue link/cost fields. Existing `profiles`, `staff`, `staff_invites`, `class_staff`, and revenue/profitability tables remain compatible. |
+| **SQL/migration needed** | Run `supabase/nf1-access-operations-foundation.sql` after migration #24, then run `supabase/nf1b-operations-modules.sql` after NF-1 foundation. |
+| **Acceptance criteria for current slice** | Access SQL seeds role presets; Owner user/admin access pages work; owner/admin/staff venue pages work; saved venue selection persists on owner class create/edit; owner sponsor directory and class sponsor attachment work; public sponsor display hides amounts; owner branding appears across portal/public surfaces; notification bell/read state works after notification rows exist. |
+| **Remaining sub-phases** | Staging SQL application and browser QA; workflow-level notification event emitters; inline sponsor/venue creation inside class forms; admin business-detail embedded sponsor/venue/branding panels if needed. |
+| **Rollback risk** | Medium. New tables are additive. Disable new sidebars/pages if SQL is not applied. Do not delete access rows casually once staging users are assigned; deactivate users/roles instead. |
+
 ## 9. Phase Detail Template
 
 Use this template when a phase is approved for development. Fill in every field before writing code.
@@ -492,6 +508,26 @@ Use this template when a phase is approved for development. Fill in every field 
 
 ---
 
+### Phase NF-0B Detail — Revenue Split, Commission, Staff Payouts
+
+| Field | Content |
+| --- | --- |
+| **Phase name** | `NF-0B: Revenue Split, Commission, Staff Payout, and Earnings Engine` |
+| **Goal** | Add a shared accounting model for platform margin, owner gross/net earnings, per-instructor commission, and owner-to-staff payout records without enabling Razorpay or changing dummy payment mode. |
+| **Features included** | Admin platform margin management, admin revenue split dashboard, owner revenue split dashboard, owner staff earnings/payables, owner staff payout marking, staff earnings dashboard, staff payout status, revenue split calculation foundation, staff payout records, revenue split QA coverage. |
+| **Features excluded** | Razorpay enablement, real settlement automation, owner payout automation from platform to owner, production tax/accounting exports, and commission snapshotting for real-money settlement. |
+| **Routes affected** | `/admin/dashboard`, `/admin/analytics`, `/admin/businesses`, `/admin/businesses/[id]`, `/admin/classes`, `/owner/dashboard`, `/owner/analytics`, `/owner/classes`, `/owner/classes/create`, `/owner/classes/[id]/edit`, `/owner/staff`, `/staff/dashboard`, `/staff/classes`, `/staff/profile`. |
+| **API routes affected** | Added `/api/admin/revenue`, `/api/owner/revenue`, `/api/owner/staff-payouts`; updated `/api/admin/analytics`, `/api/admin/businesses/[id]/data`, `/api/admin/businesses/[id]/update`. |
+| **Supabase tables affected** | `businesses`, `class_staff`, new `staff_payouts`; reads `classes`, `bookings`, `staff`, `payments`. |
+| **SQL/migration needed** | Run `supabase/nf0b-revenue-split-payouts.sql` after existing migrations. It adds `platform_margin_percent`, `class_staff.commission_type`, `class_staff.commission_value`, `staff_payouts`, and revenue summary views. |
+| **Formulas** | Eligible revenue uses `booking_status = confirmed` and `payment_status = paid`. Gross = sum of eligible booking amounts. Platform earning = gross x margin / 100. Fixed staff commission = value x eligible paid bookings. Percentage staff commission = gross x value / 100. Owner net = gross - platform earning - staff earnings. |
+| **QA checklist** | Free class zero revenue; paid class with percentage commission; paid class with fixed commission; multiple instructors; partial/full payout; overpayment prevention; cancelled/refunded exclusion; dummy paid booking counts; admin/owner/staff visibility; customer non-visibility; margin update; commission update; negative owner net warning. |
+| **Acceptance criteria** | Admin, owner, and staff portals show the same calculated split values from the shared model; owners can record partial/full staff payouts; staff sees only own earnings; customers never see internal revenue data. |
+| **Edge cases** | Dynamic MVP calculations update when margin or commission rules change. Historical payout records remain recorded. Snapshotting should be added before real-money Razorpay settlement. |
+| **Rollback risk** | Medium. UI/API changes can be reverted. New `staff_payouts` rows should not be deleted casually; use a compensating payout/note pattern if a payout record is entered incorrectly. |
+
+---
+
 ## 10. Immediate Recommendation
 
 The next phase should be **Phase NF-0: Admin QA and Launch Readiness Cleanup**.
@@ -520,6 +556,8 @@ This section records which existing documents were updated as part of creating t
 
 **Phase NF-0 approved — 2026-06-04.** NF-0 features: `NF-ADMIN-001`, `NF-ADMIN-003`, `NF-ADMIN-008`, `NF-PLAT-004`, `NF-PLAT-010`, `NF-PLAT-007` status updated to `Approved for Phase`.
 
-**NF-0A tested and passed — 2026-06-04.** Admin access, owner approval flow, and cross-portal retest (owner publishes → customer books) all passed on staging. `NF-ADMIN-003` marked `Completed`. Source file changed: `app/admin/owner-approvals/page.tsx` (ReasonModal required-reason bug fix). 5 documentation files updated. Build passed. Rejection/suspend/reactivate flow: optional — not required for NF-0A pass. NF-0B (areas 6–14) is next before NF-1 begins.
+**NF-0A tested and passed — 2026-06-04.** Admin access, owner approval flow, and cross-portal retest (owner publishes → customer books) all passed on staging. `NF-ADMIN-003` marked `Completed`. Source file changed: `app/admin/owner-approvals/page.tsx` (ReasonModal required-reason bug fix). 5 documentation files updated. Build passed. Rejection/suspend/reactivate flow: optional — not required for NF-0A pass.
+
+**NF-1/NF-1B implemented locally — 2026-06-05.** Access foundation, Owner Studio users/roles, VibePass Interface access, venues, sponsors, branding, and notification foundation are implemented locally. Staging requires running `supabase/nf1-access-operations-foundation.sql` and `supabase/nf1b-operations-modules.sql` before QA. NF-0B admin areas 6–14 still need staging QA.
 
 Do not commit or push until the user approves.

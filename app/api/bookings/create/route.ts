@@ -1,6 +1,11 @@
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { sendBookingEmails } from "@/lib/emailService";
+import {
+  ensureBookingFinancialSnapshot,
+  money,
+  recalculateClassFinancialSnapshot,
+} from "@/lib/finance";
 
 interface AttendeeInput {
   name: string;
@@ -84,7 +89,7 @@ export async function POST(request: Request) {
   }
 
   // Insert one booking row per attendee
-  const pricePerSeat = isPaidBooking && seatsNeeded > 0 ? Math.round(totalAmount / seatsNeeded) : 0;
+  const pricePerSeat = isPaidBooking && seatsNeeded > 0 ? money(totalAmount / seatsNeeded) : 0;
 
   const bookingRows = attendees.map((attendee, i) => {
     const isPrimary = i === 0;
@@ -98,7 +103,7 @@ export async function POST(request: Request) {
       payment_status: isPaidBooking ? "paid" : "not_required",
       // Primary attendee absorbs rounding remainder so seat amounts sum to total
       amount: isPaidBooking
-        ? (isPrimary ? totalAmount - pricePerSeat * (seatsNeeded - 1) : pricePerSeat)
+        ? (isPrimary ? money(totalAmount - pricePerSeat * (seatsNeeded - 1)) : pricePerSeat)
         : 0,
       age_range: isPrimary && ageRange ? ageRange : null,
       gender: isPrimary && gender ? gender : null,
@@ -123,27 +128,10 @@ export async function POST(request: Request) {
 
   const primaryBooking = bookings[0];
 
-  // For dummy paid bookings: create a payment record so revenue analytics work correctly
-  if (isPaidBooking) {
-    const dummyId = crypto.randomUUID();
-    supabase.from("payments").insert({
-      booking_id: primaryBooking.id,
-      class_id: classId,
-      business_id: businessId,
-      amount: totalAmount,
-      currency: "INR",
-      gateway: "dummy",
-      gateway_payment_id: `dummy_${dummyId}`,
-      gateway_order_id: `dummy_order_${dummyId}`,
-      status: "paid",
-    }).then(() => {}, () => {});
-  }
-
-  // Fetch class/business details for confirmation email (fire-and-forget)
   const [{ data: clsDetails }, { data: bizDetails }] = await Promise.all([
     supabase
       .from("classes")
-      .select("title, date, start_time, end_time, location")
+      .select("title, date, start_time, end_time, location, currency")
       .eq("id", classId)
       .single(),
     supabase
@@ -152,6 +140,32 @@ export async function POST(request: Request) {
       .eq("id", businessId)
       .single(),
   ]);
+
+  // For dummy paid bookings: create a payment record so revenue analytics work correctly
+  if (isPaidBooking) {
+    const dummyId = crypto.randomUUID();
+    supabase.from("payments").insert({
+      booking_id: primaryBooking.id,
+      class_id: classId,
+      business_id: businessId,
+      amount: totalAmount,
+      currency: clsDetails?.currency ?? "INR",
+      gateway: "dummy",
+      gateway_payment_id: `dummy_${dummyId}`,
+      gateway_order_id: `dummy_order_${dummyId}`,
+      status: "paid",
+    }).then(() => {}, () => {});
+
+    await Promise.all(
+      bookings.map((booking) =>
+        ensureBookingFinancialSnapshot(supabase, booking.id, { recalculateClass: false })
+          .catch((error) => console.error("Booking snapshot error:", error))
+      )
+    );
+  }
+
+  await recalculateClassFinancialSnapshot(supabase, classId)
+    .catch((error) => console.error("Class finance snapshot recalculation error:", error));
 
   if (clsDetails && bizDetails) {
     sendBookingEmails({

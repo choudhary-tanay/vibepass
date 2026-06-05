@@ -1,0 +1,592 @@
+================================================================================
+VIBEPASS — CALCULATION AND DATA SYNC MAP
+Audit Date: 2026-06-05
+Status: Read-Only Audit — No Code Changed
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+Area                  | Risk    | Summary
+----------------------|---------|-------------------------------------------------------
+Revenue Split         | Low     | TypeScript helper + SQL views. Consistent.
+Profitability Engine  | Medium  | Full cost engine in lib/profitability.ts. Break-even only in TypeScript.
+Currency Conversion   | Medium  | INR-intermediate. Admin-editable. 5-min cache. Async propagation.
+Staff Commission      | HIGH    | Formula duplicated in 4 locations (TypeScript + SQL view + 2 form previews).
+Break-Even Calc       | Medium  | Only in TypeScript. Not in SQL. Form preview duplicates it.
+Tax Calculation       | Low     | In TypeScript + form preview. Simple logic.
+Data Sync             | Medium  | All on-demand pull. No real-time push. Stale-data risk.
+Sponsorship           | Medium  | Income + offsets break-even. Dual role may confuse owners.
+
+
+================================================================================
+SECTION 1: ALL CALCULATION FORMULAS FOUND
+================================================================================
+
+--- A1: Revenue Split Calculations ---
+
+CALC-001: Platform Earning
+  Formula: totalClassRevenue * platformMarginPercent / 100
+  Tables:  bookings, businesses
+  Files:   lib/revenueSplits.ts:255, nf0b SQL view:311
+  Portal:  Owner, Admin
+  Dupes:   2 (TypeScript + SQL)
+
+CALC-002: Owner Gross After Platform Fee
+  Formula: totalClassRevenue - platformEarning
+  Tables:  bookings, businesses
+  Files:   lib/revenueSplits.ts:256, nf0b SQL view:312
+  Portal:  Owner, Admin
+  Dupes:   2
+
+CALC-003: Staff Commission (percentage type)
+  Formula: totalClassRevenue * commissionValue / 100
+  Tables:  bookings, class_staff
+  Files:   lib/revenueSplits.ts:269, nf0b SQL:237, create page, edit page
+  Portal:  Owner, Staff
+  Dupes:   4 *** HIGH RISK ***
+
+CALC-004: Staff Commission (fixed per booking)
+  Formula: commissionValue * eligiblePaidBookingCount
+  Tables:  bookings, class_staff
+  Files:   lib/revenueSplits.ts:267, nf0b SQL:234, create page, edit page
+  Portal:  Owner, Staff
+  Dupes:   4 *** HIGH RISK ***
+
+CALC-005: Owner Net Earning (per class)
+  Formula: totalClassRevenue - platformEarning - totalStaffEarning
+  Tables:  bookings, businesses, class_staff
+  Files:   lib/revenueSplits.ts:302, nf0b SQL:314-319
+  Portal:  Owner, Admin
+  Dupes:   2
+
+CALC-006: Staff Paid Amount
+  Formula: SUM(staff_payouts.amount) WHERE class_staff_id = X OR (class_id + staff_id match)
+  Tables:  staff_payouts
+  Files:   lib/revenueSplits.ts:271-274, nf0b SQL:213-220
+  Portal:  Owner, Staff
+  Dupes:   2
+
+CALC-007: Staff Unpaid Balance
+  Formula: MAX(staffEarning - paidAmount, 0)
+  Tables:  staff_payouts, class_staff, bookings
+  Files:   lib/revenueSplits.ts:276, nf0b SQL:241-249
+  Portal:  Owner, Staff
+  Dupes:   2
+
+CALC-008: Staff Payout Status Enum
+  Formula:
+    IF earning <= 0: "no_earning"
+    ELSE IF paid <= 0: "unpaid"
+    ELSE IF paid < earning: "partially_paid"
+    ELSE: "paid"
+  Files:   lib/revenueSplits.ts:118-123, nf0b SQL:250-269
+  Dupes:   2
+
+CALC-009: Platform Margin Percent (Fallback Chain)
+  Formula: platform_margin_percent ?? platform_margin ?? 0
+  WARNING: If platform_margin_percent = 0 (intentional), falls back to platform_margin.
+           Cannot set 0% fee if legacy column has value.
+  Files:   lib/revenueSplits.ts:125-129, nf0b SQL:310
+  Dupes:   2
+
+CALC-010: Eligible Bookings Filter
+  Formula: booking_status = "confirmed" AND payment_status = "paid"
+  Files:   lib/revenueSplits.ts:219-222, nf0b SQL:204-210
+  Dupes:   2
+
+--- A2: Profitability Calculations ---
+
+CALC-011: Tax Amount (percentage)
+  Formula: grossRevenue * taxValue / 100
+  Tables:  classes
+  Files:   lib/profitability.ts:90-92, form previews
+  Dupes:   3 (TypeScript + 2 form previews)
+
+CALC-012: Tax Amount (fixed)
+  Formula: taxValue (flat)
+  Tables:  classes
+  Files:   lib/profitability.ts:93, form previews
+  Dupes:   3
+
+CALC-013: Total Deductions
+  Formula: platformShare + staffCommission + staffFixedCost + venueCost + additionalExpenses + taxAmount
+  Tables:  bookings, class_staff, classes, class_expenses
+  Files:   lib/profitability.ts:331-333
+  Dupes:   1 (only in profitability engine)
+
+CALC-014: Final Owner Earning (Actual)
+  Formula: grossRevenue + totalSponsorshipAmount - totalDeductions
+  NOTE:    Sponsorship is INCOME (positive), not a deduction
+  Tables:  bookings, class_staff, classes, class_expenses, class_sponsors
+  Files:   lib/profitability.ts:335
+  Dupes:   1
+
+CALC-015: Profit/Loss Status
+  Formula: earning > 0 = "profit", = 0 = "break_even", < 0 = "loss"
+  Files:   lib/profitability.ts:82-86
+  Dupes:   1
+
+CALC-016: Estimated Gross Revenue (Pre-Publish)
+  Formula: price * (expectedBookings > 0 ? expectedBookings : capacity)
+  EDGE CASE: expectedBookings = 0 treated same as unset (falls back to capacity)
+  Tables:  classes
+  Files:   lib/profitability.ts:353-354, form previews
+  Dupes:   3
+
+CALC-017: Estimated Final Owner Earning
+  Formula: estGross + estSponsorship - estPlatform - estStaffComm - estFixedCosts - estTax
+  Tables:  classes, class_staff, class_sponsors
+  Files:   lib/profitability.ts:371-380, form previews
+  Dupes:   3
+
+CALC-018: Break-Even Booking Count
+  Formula:
+    netPerBooking = price - platformFeePerBooking - commissionPerBooking - percentageTaxPerBooking
+    rawFixedCosts = venueCost + expenses + staffFixed + fixedTax
+    fixedCosts = MAX(0, rawFixedCosts - totalSponsorshipAmount)
+    IF price <= 0 OR netPerBooking <= 0: breakEven = NULL, achievable = FALSE
+    ELSE IF fixedCosts <= 0: breakEven = 0, achievable = TRUE
+    ELSE: breakEven = CEIL(fixedCosts / netPerBooking), achievable = TRUE
+  NOTE:    Sponsorship offsets fixed costs, can reduce break-even to 0
+  Files:   lib/profitability.ts:98-124, form previews
+  Dupes:   3
+
+CALC-019: Customer Retention Percentage
+  Formula: 100 * repeat_customers / unique_customers
+  Tables:  bookings
+  Files:   nf0c SQL view: class_customer_retention
+  Dupes:   1 (SQL only)
+
+CALC-020: Sponsorship as Break-Even Cost Offset
+  Formula: sponsorship reduces rawFixedCosts before break-even division
+  DUAL ROLE: Sponsorship also adds to income (CALC-014). This is correct but subtle.
+  Files:   lib/profitability.ts:342
+
+--- A3: Currency Calculations ---
+
+CALC-021: Currency Conversion (INR-based intermediate)
+  Formula: converted = amount * rates[fromCurrency] / rates[toCurrency]
+  DEFAULT: DEFAULT_RATES_TO_INR = {INR:1, USD:95.74, AUD:68.34, EUR:111.24}
+  Files:   lib/exchangeRates.ts:19-30 (MASTER)
+           lib/currency.ts:27-39 (inline copy)
+           lib/hooks/useCurrencyDisplay.ts:84-90 (inline copy)
+           app/owner/dashboard/page.tsx:120-124 (inline copy)
+  Dupes:   4 *** SHOULD BE CENTRALIZED ***
+
+CALC-022: Smart Decimal Formatter
+  Formula: Only show .XX if fractional cents exist
+  Files:   lib/currency.ts:13-23
+  Dupes:   1
+
+CALC-023: Dual-Currency Display
+  Formula: {primary: original, secondary: converted} (secondary null if same currency)
+  Files:   lib/currency.ts:27-39
+  Dupes:   1
+
+CALC-024: Owner Revenue Totals (Converted)
+  Formula: SUM(conv(split.amount, split.currency)) per metric
+  Files:   app/owner/dashboard/page.tsx:117-154
+  NOTE:    O(n) conversion loop per dashboard load
+
+--- A4: Booking Calculations ---
+
+CALC-025: Multi-Seat Amount Distribution
+  Formula: pricePerSeat = ROUND(total / seats)
+           firstSeat = total - (seats - 1) * perSeat  (absorbs remainder)
+  Files:   app/api/bookings/create/route.ts:86-102
+
+CALC-026: Average Occupancy
+  Formula: ROUND(SUM((booked/capacity) * 100) / publishedCount)
+  Files:   app/owner/dashboard/page.tsx:78-84
+
+CALC-027: Monthly Revenue Trend (6 months)
+  Formula: SUM(booking.amount) WHERE createdAt starts with YYYY-MM AND payment_status = paid
+  Files:   app/owner/analytics/page.tsx:177-184
+
+
+================================================================================
+SECTION 2: DATA SYNC FLOWS
+================================================================================
+
+SYNC-001: Booking Created
+  Trigger: Customer submits booking form
+  API: /api/bookings/create → book_if_capacity() RPC (atomic)
+  Tables Changed: bookings (INSERT), payments (INSERT if paid), classes.booked_count (+1)
+  Portals: Customer (email), Owner (on refresh), Admin (on refresh)
+  Risk: Medium — no real-time push. AppStore refreshes on mount only.
+
+SYNC-002: Booking Cancelled
+  Trigger: Customer cancels or class cancelled
+  API: cancel_booking() RPC
+  Tables: bookings.booking_status = cancelled, classes.booked_count (-1)
+  Portals: Customer, Owner, Admin
+  Risk: Medium — on-demand pull
+
+SYNC-003: Class Created / Edited
+  Trigger: Owner saves class form
+  API: AppStore addClass/updateClass → Supabase direct
+  Tables: classes, class_staff (replace all assignments)
+  Portals: Owner, Customer (marketplace)
+  Risk: Low
+
+SYNC-004: Staff Commission Changed
+  Trigger: Owner edits commission in class form
+  Tables: class_staff.commission_type, class_staff.commission_value
+  Impact: Revenue splits recalculate with new commission on next API call
+  Portals: Owner, Staff
+  Risk: HIGH — TypeScript + SQL both recalculate. Must verify consistency.
+
+SYNC-005: Staff Payout Recorded
+  Trigger: Owner clicks "Mark Paid" in staff page
+  API: POST /api/owner/staff-payouts
+  Validation: amount <= staffUnpaidBalance (live check)
+  Tables: staff_payouts (INSERT only)
+  Impact: staffPaidAmount increases, staffUnpaidBalance decreases, status may change
+  Portals: Owner, Staff
+  Risk: Low
+
+SYNC-006: Sponsor Added to Class
+  Trigger: Owner adds sponsor in class edit form
+  API: POST /api/owner/classes/[id]/sponsors
+  Tables: sponsors (maybe INSERT), class_sponsors (INSERT)
+  Impact: Profitability recalculates (higher income, lower break-even)
+         If showPublicly = true, appears on customer class detail page
+  Portals: Owner, Customer
+  Risk: Medium
+
+SYNC-007: Currency Rate Changed
+  Trigger: Admin updates rates in analytics page
+  API: POST /api/admin/exchange-rates
+  Tables: exchange_rates (UPSERT)
+  Impact: All converted currency displays update on next load (5-min cache)
+  Portals: Owner, Admin, Staff (all currency displays)
+  Risk: HIGH — 5-min delay. All portals must re-fetch.
+
+SYNC-008: Owner Display Currency Changed
+  Trigger: Owner saves settings (reportingCurrency)
+  API: updateBusiness() AppStore → Supabase
+  Tables: businesses.reporting_currency
+  Impact: Dashboard, analytics, class list converted totals change immediately on re-render
+  Portals: Owner
+  Risk: Medium
+
+SYNC-009: Admin Display Currency Changed
+  Trigger: Admin saves preference in analytics page
+  API: Direct Supabase update (supabase.from("profiles").update)
+  Tables: profiles.preferred_currency
+  Impact: Admin financial dashboards re-render with new currency
+  Portals: Admin
+  Risk: Medium
+
+SYNC-010: Staff Display Currency Changed
+  Trigger: Staff saves profile edit
+  API: Direct Supabase update
+  Tables: profiles.preferred_currency
+  Impact: Staff dashboard earnings display changes
+  Portals: Staff
+  Risk: Medium
+
+SYNC-011: Platform Margin Changed
+  Trigger: Admin updates margin in business detail
+  API: /api/admin/businesses/[id]/update
+  Tables: businesses.platform_margin_percent
+  Impact: ALL historical revenue splits recalculate with new margin on next API call
+  Portals: Owner, Admin
+  Risk: HIGH — retroactive change. No audit trail of margin changes.
+
+SYNC-012: Class Expense Added
+  Trigger: Owner adds expense in class edit form
+  API: POST /api/owner/classes/[id]/expenses
+  Tables: class_expenses (INSERT)
+  Impact: Profitability (higher deductions, lower final earning, higher break-even)
+  Portals: Owner
+  Risk: Low
+
+SYNC-013: Venue Cost Changed
+  Trigger: Owner edits venue cost
+  API: AppStore updateClass
+  Tables: classes.venue_cost
+  Impact: Profitability (same as expenses)
+  Portals: Owner
+  Risk: Low
+
+SYNC-014: Business Status Changed
+  Trigger: Admin approves/rejects/suspends business
+  API: /api/admin/businesses/[id]/status
+  Tables: businesses.status, businesses.is_marketplace_visible
+  Impact: Marketplace visibility, owner dashboard status banner
+  Portals: Owner, Customer, Admin
+  Risk: Low — immediate
+
+
+================================================================================
+SECTION 3: SHARED HELPERS
+================================================================================
+
+HELPER-001: calculateRevenueSplits()
+  File: lib/revenueSplits.ts
+  Used by: /api/owner/revenue, /api/admin/revenue
+  Responsibility: All per-class revenue splits, staff earnings, payout status
+
+HELPER-002: loadProfitabilityResult()
+  File: lib/profitability.ts
+  Used by: /api/owner/profitability, /api/admin/profitability
+  Responsibility: Full profitability including expenses, venue, tax, sponsors
+
+HELPER-003: convertCurrency()
+  File: lib/exchangeRates.ts (MASTER - use this one)
+  Formula: amount * rates[from] / rates[to] (INR as intermediate)
+
+HELPER-004: formatCurrency()
+  File: lib/currency.ts
+  Smart decimals: Only show .XX when cents exist
+
+HELPER-005: formatDual()
+  File: lib/currency.ts
+  Returns {primary, secondary} for dual-currency display
+
+HELPER-006: useCurrencyDisplay()
+  File: lib/hooks/useCurrencyDisplay.ts
+  Cache: 5-min TTL on rates (module scope, shared across components)
+  Provides: fmt(), fmtWithOriginal()
+
+HELPER-007: money() (rounding)
+  File: lib/revenueSplits.ts, lib/profitability.ts (duplicated)
+  Formula: Math.round(value * 100) / 100
+  NOT used in form previews — RISK
+
+
+================================================================================
+SECTION 4: SQL VIEWS
+================================================================================
+
+VIEW-001: staff_earnings_summary
+  File: nf0b-revenue-split-payouts.sql
+  Formula: Per-instructor earnings per class (mirrors TypeScript CALC-003/004)
+  Risk: Must stay in sync with lib/revenueSplits.ts
+
+VIEW-002: class_revenue_splits
+  File: nf0b-revenue-split-payouts.sql
+  Formula: Per-class revenue breakdown (mirrors TypeScript CALC-001/005)
+
+VIEW-003: business_revenue_summary
+  File: nf0b-revenue-split-payouts.sql
+  Formula: GROUP BY business_id of class_revenue_splits
+
+VIEW-004: platform_revenue_summary
+  File: nf0b-revenue-split-payouts.sql
+  Formula: Platform-wide totals (single row)
+
+VIEW-005: class_customer_retention
+  File: nf0c-profitability.sql
+  Formula: retention % per class (unique/repeat customer logic)
+
+RPC-001: book_if_capacity(classId, slots)
+  File: supabase/book-if-capacity.sql
+  Atomic: Capacity check + booked_count increment in transaction
+
+RPC-002: cancel_booking(bookingId)
+  File: supabase/phase5-cancel.sql
+  Validates + cancels + decrements booked_count
+
+
+================================================================================
+SECTION 5: RISK AREAS
+================================================================================
+
+RISK-001: Staff commission duplicated in 4 places [SEVERITY: HIGH]
+  Description: Commission calculation in TypeScript (source of truth), SQL view,
+               and 2 form previews. Rule change needs 4 updates. Drift = wrong earnings.
+  Files: lib/revenueSplits.ts, nf0b SQL, create/page.tsx, edit/page.tsx
+  Needs Fix: Yes — eventually
+
+RISK-002: Platform margin fallback breaks 0% fee [SEVERITY: HIGH]
+  Description: getPlatformMarginPercent() skips platform_margin_percent if value is 0.
+               Cannot set 0% fee if legacy column has a non-zero value.
+  Files: lib/revenueSplits.ts:125-129, nf0b SQL:310
+  Needs Fix: Yes
+
+RISK-003: No real-time sync [SEVERITY: MEDIUM]
+  Description: All calculations on-demand pull. Long sessions = stale data.
+  Files: All API routes + AppStore
+  Needs Fix: Decide strategy (polling vs WebSocket vs on-demand)
+
+RISK-004: Break-even not in SQL [SEVERITY: MEDIUM]
+  Description: Only in TypeScript. Cannot query from SQL. Form preview duplicates.
+  Files: lib/profitability.ts, form previews
+  Needs Fix: Low risk now; document
+
+RISK-005: Currency conversion in 4 separate places [SEVERITY: MEDIUM]
+  Description: Same formula implemented in exchangeRates.ts, currency.ts,
+               useCurrencyDisplay, and dashboard manually.
+  Needs Fix: Centralize all to convertCurrency()
+
+RISK-006: Sponsorship dual-role confusion [SEVERITY: MEDIUM]
+  Description: Sponsorship is both income AND reduces break-even fixed costs.
+               Owner may think it's double-counted.
+  Files: lib/profitability.ts:335,342
+  Needs Fix: Add UI explanation
+
+RISK-007: Cancelled classes count in revenue totals [SEVERITY: MEDIUM]
+  Description: Revenue engine only filters on booking status, not class status.
+  Files: lib/revenueSplits.ts:219-222
+  Needs Fix: Design decision required
+
+RISK-008: Staff payout lookup fragility [SEVERITY: MEDIUM]
+  Description: Fallback from class_staff_id to staff_id+class_id composite.
+               Possible double-counting if both paths exist.
+  Files: lib/revenueSplits.ts:271-274
+
+RISK-009: 5-min rate cache on currency [SEVERITY: LOW]
+  Description: Rate changes not immediate. Module-scoped cache shared across components.
+  Files: lib/hooks/useCurrencyDisplay.ts:48-56
+
+RISK-010: Form preview no money() rounding [SEVERITY: LOW]
+  Description: Preview uses raw arithmetic. Backend uses money() helper.
+               May show different values.
+  Files: create/page.tsx, edit/page.tsx
+
+RISK-011: expectedBookings = 0 → uses capacity [SEVERITY: LOW]
+  Description: Cannot model 0-booking scenario. Owner cannot project worst case.
+  Files: lib/profitability.ts:353
+
+RISK-012: Multi-currency dashboard loop O(n) [SEVERITY: LOW]
+  Description: Owner dashboard loops over all class splits for currency conversion.
+               Expensive at scale.
+  Files: app/owner/dashboard/page.tsx:115-154
+
+
+================================================================================
+SECTION 6: RECOMMENDED NEXT STEPS
+================================================================================
+
+P0 (Fix Soon):
+  1. Fix platform margin fallback — support explicit 0%
+     Files: lib/revenueSplits.ts:125-129, nf0b SQL view:310
+
+  2. Apply money() rounding in form previews
+     Files: create/page.tsx, edit/page.tsx
+
+P1 (Fix Before Scale):
+  3. Centralize commission logic to shared function
+     Files: lib/revenueSplits.ts, nf0b SQL, form previews (+ SQL migration needed)
+
+  4. Centralize all currency conversion to convertCurrency()
+     Files: lib/currency.ts, useCurrencyDisplay.ts, dashboard page
+
+  5. Add sponsorship UI explanation (dual-role tooltip)
+     Files: form previews
+
+  6. Populate staff_payouts.currency on insert
+     Files: app/api/owner/staff-payouts/route.ts
+
+P2 (Quality):
+  7. Add "include cancelled classes" filter in analytics
+  8. Add 30s polling to analytics page
+  9. Fix expectedBookings = 0 edge case
+
+P3 (Future):
+  10. SQL view for break-even (if admin needs SQL reporting)
+  11. Pre-aggregate multi-currency revenue in SQL
+  12. Global default platform margin config table
+
+================================================================================
+FILES INSPECTED IN THIS AUDIT
+================================================================================
+
+lib/revenueSplits.ts
+lib/profitability.ts
+lib/currency.ts
+lib/exchangeRates.ts
+lib/hooks/useCurrencyDisplay.ts
+lib/appStore.tsx
+app/api/owner/revenue/route.ts
+app/api/owner/profitability/route.ts
+app/api/owner/staff-payouts/route.ts
+app/api/owner/classes/[id]/expenses/route.ts
+app/api/owner/classes/[id]/sponsors/route.ts
+app/api/admin/revenue/route.ts
+app/api/admin/profitability/route.ts
+app/api/admin/exchange-rates/route.ts
+app/api/currency/rates/route.ts
+app/api/bookings/create/route.ts
+app/owner/dashboard/page.tsx
+app/owner/analytics/page.tsx
+app/owner/classes/page.tsx
+app/owner/staff/page.tsx
+app/admin/dashboard/page.tsx
+app/admin/analytics/page.tsx
+app/admin/businesses/[id]/page.tsx
+app/staff/(portal)/dashboard/page.tsx
+app/staff/(portal)/classes/page.tsx
+app/customer/bookings/page.tsx
+app/classes/[id]/page.tsx
+app/owner/classes/create/page.tsx
+app/owner/classes/[id]/edit/page.tsx
+supabase/nf0b-revenue-split-payouts.sql
+supabase/nf0c-profitability.sql
+supabase/nf0d-currency.sql
+supabase/nf0e-exchange-rates.sql
+
+NO CODE WAS CHANGED DURING THIS AUDIT.
+NO SQL MIGRATIONS WERE CREATED.
+NO COMMITS WERE MADE.
+================================================================================
+
+================================================================================
+NF-0F IMPLEMENTATION UPDATE — 2026-06-05
+================================================================================
+
+Implemented a finance source of truth under lib/finance:
+  - money.ts
+  - revenue.ts
+  - commission.ts
+  - profitability.ts
+  - tax.ts
+  - occupancy.ts
+  - breakEven.ts
+  - payouts.ts
+  - snapshots.ts
+  - types.ts
+  - index.ts
+
+Added SQL migration:
+  - supabase/nf0f-finance-snapshots.sql
+
+Snapshot tables:
+  1. booking_financial_snapshots
+     Stores booking/payment-time financial values so later margin changes do not rewrite history.
+
+  2. class_financial_snapshots
+     Stores current class-level gross revenue, costs, sponsor income, net profit, break-even,
+     occupancy, and paid/confirmed booking totals for dashboards and reports.
+
+  3. staff_earning_snapshots
+     Stores current staff/class earning amount, paid amount, unpaid amount, payout status,
+     commission type/value, and currency.
+
+Recalculation hooks:
+  - booking creation
+  - class create/edit
+  - class cancel/delete
+  - expenses create/update/delete
+  - sponsor attach/remove
+  - staff payout creation
+  - explicit POST /api/finance/recalculate/class/[id]
+  - explicit POST /api/finance/recalculate/business/[id]
+
+Audit fixes now implemented:
+  - platform_margin_percent = 0 is respected
+  - money() rounding is shared
+  - staff commission formulas centralized
+  - break-even and tax previews use the shared engine
+  - expectedBookings = 0 remains valid
+  - staff_payouts.currency is populated
+  - Owner/Staff portals use business operating currency only
+  - sponsor income explanation added to create/edit class flows
+
+Rule going forward:
+  - Treat lib/finance + snapshot tables as the business calculation source of truth.
+  - Treat old SQL views as read-only service-role mirrors/fallbacks.
+  - Backfill existing records by running the NF-0F SQL and then POSTing to
+    /api/finance/recalculate/business/[businessId].

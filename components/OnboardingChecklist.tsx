@@ -23,11 +23,22 @@ export function OnboardingChecklist({
   steps,
 }: OnboardingChecklistProps) {
   const [dismissed, setDismissed] = useState(true);
+  const doneCount = steps.filter((s) => s.done).length;
+  const allDone = doneCount === steps.length;
 
   useEffect(() => {
-    const val = localStorage.getItem(storageKey);
-    if (!val) setDismissed(false);
+    const timer = window.setTimeout(() => {
+      const val = localStorage.getItem(storageKey);
+      if (!val) setDismissed(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [storageKey]);
+
+  useEffect(() => {
+    if (!dismissed && allDone) {
+      localStorage.setItem(storageKey, "1");
+    }
+  }, [allDone, dismissed, storageKey]);
 
   function dismiss() {
     localStorage.setItem(storageKey, "1");
@@ -35,14 +46,7 @@ export function OnboardingChecklist({
   }
 
   if (dismissed) return null;
-
-  const doneCount = steps.filter((s) => s.done).length;
-  const allDone = doneCount === steps.length;
-
-  if (allDone) {
-    dismiss();
-    return null;
-  }
+  if (allDone) return null;
 
   return (
     <div className="mb-6 rounded-[2rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5 shadow-sm dark:border-indigo-900 dark:from-indigo-950/40 dark:to-slate-900">

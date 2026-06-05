@@ -36,6 +36,7 @@ Current launch constraints:
 | Payments in staging | Dummy payment mode only |
 | Required staging payment env | `NEXT_PUBLIC_PAYMENTS_MODE=dummy`, `NEXT_PUBLIC_PAYMENTS_ENABLED=false` |
 | Real payments | Razorpay code exists but is deferred |
+| Finance calculations | `lib/finance` plus NF-0F snapshot tables are the source of truth. SQL revenue views are read-only mirrors/fallbacks. |
 | Database/auth/storage | Supabase Auth, Postgres, RLS, Storage |
 | Email | Resend optional |
 | Maps | Google Maps optional |
@@ -79,6 +80,8 @@ Use these files together:
 ## Current Known Bugs
 
 All Step 9 QA bugs were fixed in the 2026-06-04 bug-fix pass. No open bugs from that pass remain.
+
+NF-0F finance architecture note: the 2026-06-05 finance pass centralizes money, platform fee, staff commission, tax, break-even, payout status, sponsorship, and snapshot recalculation logic under `lib/finance`. Owner/Staff portals should display business operating currency only.
 
 | ID | Severity | Status | Fix summary |
 | --- | --- | --- | --- |
@@ -396,8 +399,170 @@ Use this before editing. A small file change can affect several portals.
 | `staff` | Owner staff creation/invite, staff invite registration, profile update | Owner, staff, public staff, class staff links | Broken linkage currently blocks staff-related QA |
 | `staff_invites` | Owner/staff management invite APIs | Staff invite pages/APIs | Must create reliable staff/business linkage |
 | `class_staff` | Owner/staff class assignment | Staff pages, class detail, owner pages | Depends on valid staff rows |
+| `staff_payouts` | Owner staff payout marking | Owner/staff/admin revenue views | Tracks owner-to-staff payments separately from customer payments |
 | `reports` | Public report API | Admin reports/dashboard | Failing in staging until SQL/app issue is fixed |
 | `admin_audit_logs` | Admin actions | Admin audit page | Must record high-risk admin changes |
+
+## NF-0B Revenue Split Engine
+
+Status: implemented locally; staging requires `supabase/nf0b-revenue-split-payouts.sql`.
+
+Source of truth:
+
+- Shared server helper: `lib/revenueSplits.ts`
+- Admin API: `/api/admin/revenue`
+- Owner API: `/api/owner/revenue`
+- Owner payout API: `/api/owner/staff-payouts`
+- SQL views added by migration: `class_revenue_splits`, `staff_earnings_summary`, `business_revenue_summary`, `platform_revenue_summary`
+
+Rules:
+
+- Eligible revenue counts only `booking_status = confirmed` and `payment_status = paid`.
+- Dummy paid bookings count for staging analytics.
+- Cancelled/refunded bookings do not count toward earned revenue.
+- Gross class revenue uses stored booking amounts; class price is fallback context only.
+- Platform earning = gross revenue × business platform margin / 100.
+- Staff percentage commission = gross class revenue × commission value / 100.
+- Staff fixed commission = fixed value × eligible paid booking count.
+- Owner net = gross revenue - platform earning - total staff earning.
+- Staff payout status is `no_earning`, `unpaid`, `partially_paid`, or `paid`.
+
+Visibility:
+
+- Admin can see all split and payout data.
+- Owner can see and mark payouts only for their own business.
+- Staff can see only their own earnings and payout status.
+- Customer pages must not expose platform margin, staff commission, owner net, or payout details.
+
+Current limitation:
+
+- Earnings are dynamic for MVP. Margin or commission changes recalculate displayed earnings. Payout rows remain historical. Add snapshotting before real Razorpay settlement.
+
+## Shared DataTable Component
+
+File: `components/DataTable.tsx`
+
+All list/dataset pages across all portals use this component for compact, consistent table UX.
+
+Features:
+- Column visibility toggle stored in `localStorage` under key `vibepass_cols_{tableId}`
+- "Columns" button opens a dropdown with checkboxes for each non-fixed column
+- "Reset" restores default column visibility
+- Inline search input via `searchQuery` / `onSearchQuery` props
+- `toolbar` prop slot for extra filter controls (selects, tabs, date pickers)
+- `summary` prop for row counts
+- Compact cell helpers: `Th` (header) and `Td` (data) — `px-4 py-2.5`
+- Horizontal scroll wrapper for wide tables
+- `emptyState` prop slot
+- Render-prop pattern: `children: (visibleKeys: Set<string>) => ReactNode`
+
+Additional components:
+- `components/StaffClassesTable.tsx` — client component for staff class list
+- `components/StaffDirectoryTable.tsx` — client component for management staff directory
+
+Pages using DataTable: owner/classes, owner/bookings, owner/staff, admin/businesses, admin/classes, admin/bookings, admin/users, admin/audit-logs, admin/reports, staff/classes (via StaffClassesTable), staff/staff (via StaffDirectoryTable), customer/bookings.
+
+## NF-0C Profitability Engine
+
+Status: implemented locally — staging requires running `supabase/nf0c-profitability.sql` (migration #22) AFTER `nf0b-revenue-split-payouts.sql`.
+
+Source of truth:
+
+- Shared server helper: `lib/profitability.ts`
+- Owner profitability API: `/api/owner/profitability`
+- Admin profitability API: `/api/admin/profitability`
+- Owner expenses API: `/api/owner/classes/[id]/expenses`, `/api/owner/expenses/[id]`
+- SQL: `class_expenses` table, `class_customer_retention` view
+
+Formula — final owner earning:
+
+```
+final_owner_earning =
+  gross_revenue
+  - platform_share (gross × platform_margin / 100)
+  - staff_commission (percentage or fixed × booking count)
+  - staff_fixed_cost (sum of class_staff.fixed_class_cost)
+  - venue_cost (classes.venue_cost)
+  - additional_expenses (sum of class_expenses.amount)
+  - tax_amount (percentage of gross, fixed amount, or zero)
+```
+
+Profit/loss: `final_owner_earning > 0 → profit`, `= 0 → break_even`, `< 0 → loss`.
+
+Break-even: `ceil(fixed_costs / net_per_booking)` where `net_per_booking = price - platform_fee - per-booking commissions - percentage tax`. Returns null if net_per_booking ≤ 0.
+
+Customer retention: `class_customer_retention` view — `unique_customers`, `repeat_customers`, `repeat_customer_percent`.
+
+Visibility:
+
+- Owner can see own class profitability, expenses, venue cost, tax, and customer retention.
+- Admin can see all business profitability data.
+- Staff must NOT see owner profit/loss, venue cost, expenses, or tax internals.
+- Customer must NOT see any internal financial data.
+
+## NF-1 Access And Operations Foundation
+
+Status: implemented locally - staging requires running `supabase/nf1-access-operations-foundation.sql` (migration #25) after `nf0e-exchange-rates.sql`.
+
+Source of truth:
+
+- SQL tables: `permission_definitions`, `platform_roles`, `platform_role_permissions`, `platform_users`, `business_roles`, `business_role_permissions`, `business_users`, `business_user_invites`
+- SQL functions: `has_platform_permission(permission_key)`, `has_business_permission(business_id, permission_key)`
+- Server helper: `lib/accessControl.ts`
+- Owner APIs: `/api/owner/users`, `/api/owner/roles`
+- Admin API: `/api/admin/access`
+- Owner page: `/owner/users`
+- Admin page: `/admin/access`
+
+Behavior:
+
+- Existing `profiles.role` remains the coarse portal gate: `admin`, `owner`, `staff`, `customer`.
+- VibePass Interface roles add platform permissions for admins: Super Admin, Support, Finance/Ops, Moderator.
+- Owner Studio roles add business permissions: Owner Studio Admin, Management, Instructor, plus business-scoped custom roles.
+- Existing business owners are seeded into `business_users` as Owner Studio Admin.
+- Existing linked staff are seeded into `business_users` as Management or Instructor based on `staff.user_group`.
+- Existing staff invite links still use `/staff/invite/[token]`; when accepted, they now activate the matching `business_users` row if migration #25 exists.
+- Staff payout marking now checks `payouts.mark_paid` through the shared permission helper.
+
+Visibility:
+
+- Owners can manage users/roles for their own business from `/owner/users`.
+- Admins can inspect platform roles and assign platform presets from `/admin/access`.
+- Customer/public pages are unaffected.
+
+Current limitations:
+
+- Owner invite acceptance still uses the existing staff invite token page. A dedicated business-user invite acceptance page can be added later if non-staff business users are introduced.
+- Most legacy owner/admin routes still use coarse role guards; new APIs and payout marking use the permission helper first. Continue migrating high-risk APIs to `requireBusinessPermission` / `requirePlatformPermission` as modules D-H land.
+
+## NF-1B Venues, Sponsors, Branding, Notifications
+
+Status: implemented locally - staging requires running `supabase/nf1b-operations-modules.sql` (migration #26) after `supabase/nf1-access-operations-foundation.sql`.
+
+Source of truth:
+
+- SQL tables: `venues`, `class_venues`, `sponsors`, `class_sponsors`, `notifications`
+- Extended SQL tables: `businesses` branding fields and `classes` venue linkage/cost fields
+- APIs: `/api/owner/venues`, `/api/admin/venues`, `/api/staff/venues`, `/api/owner/sponsors`, `/api/admin/sponsors`, `/api/classes/[id]/sponsors`, `/api/notifications`
+- Pages: `/owner/venues`, `/admin/venues`, `/staff/venues`, `/owner/sponsors`, `/admin/sponsors`
+- Shared UI: `components/NotificationBell.tsx`
+
+Behavior:
+
+- Owners can manage business venues and sponsors from Owner Studio.
+- Admins can manage global venues and view sponsor/sponsorship records from VibePass Interface.
+- Staff can view active linked-business and global venues from Staff Portal.
+- Owner class create/edit can select saved/global venues and persist `venue_id`, venue name, venue cost, venue cost currency, and venue note.
+- Public class detail shows only public sponsor display fields; sponsor amounts and payment status stay owner/admin-only.
+- Owner Settings saves public display name, tagline, brand colors, cover image URL, and logo.
+- Owner, staff, admin sidebars expose notification bell/read state from `notifications`.
+
+Current limitations:
+
+- Inline sponsor creation in class create/edit is deferred; owners attach sponsors from `/owner/sponsors`.
+- Inline venue creation in class create/edit is deferred; owners create venues from `/owner/venues`.
+- Notification event emitters are not yet wired into every workflow; current slice provides table/API/UI foundation.
+- Admin company detail does not yet embed the new modules; admin has platform pages `/admin/venues` and `/admin/sponsors`.
 
 ## Mandatory Workflow For Future Work
 
@@ -416,7 +581,7 @@ Use this before editing. A small file change can affect several portals.
 
 ## Recommended Next Task
 
-NF-0A is complete. Recommended next: **NF-0B — Remaining Admin Areas QA**.
+NF-0A is complete and NF-1/NF-1B are implemented locally. Recommended next: **run pending SQL in staging, then execute NF-1/NF-1B QA alongside NF-0B remaining admin QA**.
 
 NF-0B covers admin areas 6–14:
 
@@ -430,4 +595,4 @@ NF-0B covers admin areas 6–14:
 8. Storage bucket confirmation (`class-images`, `profile-images`, `business-logos`)
 9. Legal pages (deferred to pre-public-launch — not blocking NF-0B)
 
-Do not start NF-1 until NF-0B is approved.
+Do not commit, push, deploy, or enable Razorpay until the user approves those specific actions.

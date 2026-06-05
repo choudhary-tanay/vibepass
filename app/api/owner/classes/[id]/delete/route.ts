@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { recalculateClassFinancialSnapshot } from "@/lib/finance";
 
 export async function POST(
   _request: Request,
@@ -70,6 +71,9 @@ export async function POST(
       .update({ booking_status: "cancelled" })
       .eq("class_id", id)
       .in("booking_status", ["confirmed", "pending"]);
+
+    await recalculateClassFinancialSnapshot(supabase, id)
+      .catch((snapshotError) => console.error("Delete/cancel snapshot recalculation error:", snapshotError));
 
     return Response.json({ success: true, action: "cancelled" });
   }

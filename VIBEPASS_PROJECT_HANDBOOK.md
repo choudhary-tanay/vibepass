@@ -1387,6 +1387,48 @@ Columns:
 | `paid_out_at timestamptz` | Payout time. |
 | `created_at` | Timestamp. |
 
+NF-0B note: current MVP earnings are calculated dynamically from `bookings`, `businesses`, `classes`, `class_staff`, and `staff_payouts` through `lib/revenueSplits.ts` and SQL views. The `staff_earnings` table remains a future/snapshot-style table and is not the payout ledger.
+
+### `staff_payouts`
+
+Purpose: owner-to-staff payout records for instructor commissions. This is separate from customer `payments`.
+
+Added by:
+
+```text
+supabase/nf0b-revenue-split-payouts.sql
+```
+
+Columns:
+
+| Column | Meaning |
+|---|---|
+| `id uuid primary key` | Payout record ID. |
+| `business_id uuid references businesses(id)` | Paying business. |
+| `staff_id uuid references staff(id)` | Paid staff member. |
+| `class_id uuid references classes(id)` | Optional class context. |
+| `class_staff_id uuid references class_staff(id)` | Specific instructor/class assignment. |
+| `amount numeric(10,2)` | Amount paid; must be greater than 0. |
+| `payment_date date` | Date owner paid staff. |
+| `note text` | Optional payout note. |
+| `reference text` | Optional bank/UPI/cash reference. |
+| `paid_by_owner_id uuid references auth.users(id)` | Owner who recorded payment. |
+| `created_at`, `updated_at` | Timestamps. |
+
+Revenue formulas:
+
+```text
+eligible bookings = confirmed + paid
+gross revenue = sum(booking.amount)
+platform earning = gross x platform margin / 100
+staff percentage earning = gross x commission value / 100
+staff fixed earning = commission value x eligible paid booking count
+owner net = gross - platform earning - total staff earning
+staff unpaid balance = staff earning - staff payout amount
+```
+
+MVP limitation: earnings are dynamic. Updating margin or commission rules recalculates displayed earnings. Payout rows remain historical and should not be deleted casually. Snapshotting is required before real Razorpay settlement/payout accounting.
+
 ### `reports`
 
 Purpose: user-submitted moderation/safety reports.
@@ -1744,6 +1786,7 @@ Whenever adding or changing a feature, ask:
 - `app/owner/classes/[id]/edit/page.tsx`: edit class.
 - `app/owner/bookings/page.tsx`: bookings list.
 - `app/owner/staff/page.tsx`: staff roster.
+- `app/owner/users/page.tsx`: Owner Studio user management and custom role builder.
 - `app/owner/staff/create/page.tsx`: add staff.
 - `app/owner/staff/[id]/page.tsx`: staff detail/edit.
 - `app/owner/staff/invite/page.tsx`: owner invite flow.
@@ -1770,6 +1813,7 @@ Whenever adding or changing a feature, ask:
 
 - `app/admin/layout.tsx`: admin guard/layout.
 - `app/admin/dashboard/page.tsx`: admin dashboard.
+- `app/admin/access/page.tsx`: VibePass Interface platform roles and permission assignment.
 - `app/admin/owner-approvals/page.tsx`: owner approval/re-review queue.
 - `app/admin/businesses/page.tsx`: business list.
 - `app/admin/businesses/[id]/page.tsx`: business detail admin control.
@@ -1780,6 +1824,114 @@ Whenever adding or changing a feature, ask:
 - `app/admin/users/create/page.tsx`: invite user.
 - `app/admin/reports/page.tsx`: reports queue.
 - `app/admin/analytics/page.tsx`: analytics UI.
+
+## NF-1 Access And Operations Foundation
+
+SQL file: `supabase/nf1-access-operations-foundation.sql`.
+
+Core tables:
+
+- `permission_definitions`
+- `platform_roles`
+- `platform_role_permissions`
+- `platform_users`
+- `business_roles`
+- `business_role_permissions`
+- `business_users`
+- `business_user_invites`
+
+Core helper:
+
+- `lib/accessControl.ts`
+
+New routes:
+
+- `/owner/users`
+- `/admin/access`
+- `/api/owner/users`
+- `/api/owner/roles`
+- `/api/admin/access`
+
+Rules:
+
+- `profiles.role` remains the coarse portal guard.
+- `platform_users` and `platform_role_permissions` control VibePass Interface permissions.
+- `business_users` and `business_role_permissions` control Owner Studio permissions.
+- Existing staff invites remain the acceptance path for Instructor/Management users.
+- Payout marking now checks `payouts.mark_paid`.
+- Customer/public pages must not read permission tables.
+
+## NF-1B Venues, Sponsors, Branding, Notifications
+
+SQL file: `supabase/nf1b-operations-modules.sql`.
+
+Core tables/fields:
+
+- `venues`
+- `class_venues`
+- `sponsors`
+- `class_sponsors`
+- `notifications`
+- `businesses.public_display_name`, `brand_tagline`, `brand_color`, `brand_secondary_color`, `cover_image_url`
+- `classes.venue_id`, `venue_cost_currency`, `venue_cost_note`
+
+New routes:
+
+- `/owner/venues`
+- `/admin/venues`
+- `/staff/venues`
+- `/owner/sponsors`
+- `/admin/sponsors`
+- `/api/owner/venues`
+- `/api/admin/venues`
+- `/api/staff/venues`
+- `/api/owner/sponsors`
+- `/api/admin/sponsors`
+- `/api/classes/[id]/sponsors`
+- `/api/notifications`
+
+Rules:
+
+- Owner venues/sponsors are business-scoped through `lib/accessControl.ts`.
+- Admin global venues require platform permission `venues.global.manage`.
+- Public sponsor display reads only `show_sponsor_publicly = true` records and never exposes sponsor amounts.
+- Branding fields are optional; public/portal surfaces keep fallback artwork/logo when empty.
+- Notification rows are read by recipient user or recipient role, and users can mark their own notifications read.
+
+## NF-0F Finance Engine And Snapshots
+
+SQL file: `supabase/nf0f-finance-snapshots.sql`.
+
+Source-of-truth code lives in `lib/finance/`. Frontend pages should not duplicate business formulas; they should call finance APIs, use finance snapshots, or use pure finance helpers for unsaved form previews.
+
+Snapshot tables:
+
+- `booking_financial_snapshots`: historical booking/payment values. Platform margin changes must not rewrite existing rows.
+- `class_financial_snapshots`: current class dashboard/reporting values, including sponsorship revenue, total costs, net profit, and break-even bookings.
+- `staff_earning_snapshots`: current staff earning, paid/unpaid balance, payout status, and currency by class/staff assignment.
+
+Recalculation is centralized in `lib/finance/snapshots.ts` and exposed through:
+
+- `POST /api/finance/recalculate/class/[id]`
+- `POST /api/finance/recalculate/business/[id]`
+- `GET /api/finance/classes`
+- `GET /api/finance/classes/[id]`
+- `GET /api/finance/business/[id]/dashboard`
+- `GET /api/finance/business/[id]/insights`
+- `GET /api/finance/staff/[id]/earnings`
+
+Recalculation triggers are wired into booking creation, class create/edit/cancel/delete, expense changes, sponsor attach/remove, and staff payout creation.
+
+Business operating currency rule:
+
+- Owner Studio and Staff Portal show only the business operating currency.
+- Existing businesses default to INR if missing.
+- Country mapping remains USA=USD, India=INR, Europe=EUR, Australia=AUD.
+- Customer pages show class/business currency. Admin exchange-rate tools may remain for platform operations.
+
+Known limitation:
+
+- SQL revenue views from NF-0B remain as read-only mirrors/fallbacks. They are not the formula source of truth.
 
 ### Shared Components
 

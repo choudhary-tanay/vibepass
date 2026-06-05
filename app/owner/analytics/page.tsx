@@ -1,198 +1,152 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { MetricRibbon, RingGauge, WaveBars } from "@/components/PortalCharts";
+import { formatCurrency, getCurrencySymbol, getOperatingCurrency } from "@/lib/currency";
 import { useAppStore } from "@/lib/appStore";
-import { AvatarBadge, MetricRibbon, RingGauge, TrendLine, WaveBars } from "@/components/PortalCharts";
 
-type ChartFocus =
-  | "revenue"
-  | "bookings"
-  | "occupancy"
-  | "staff"
-  | "customers"
-  | "goals"
-  | "experience";
-type Range = "all" | "90" | "30";
-
-const chartOptions: { key: ChartFocus; label: string }[] = [
-  { key: "revenue", label: "Revenue" },
-  { key: "bookings", label: "Bookings" },
-  { key: "occupancy", label: "Occupancy" },
-  { key: "staff", label: "Staff" },
-  { key: "customers", label: "Customers" },
-  { key: "goals", label: "Goals" },
-  { key: "experience", label: "Experience" },
-];
-
-const ranges: { key: Range; label: string }[] = [
-  { key: "all", label: "All time" },
-  { key: "90", label: "90 days" },
-  { key: "30", label: "30 days" },
-];
-
-function withinRange(iso: string, range: Range) {
-  if (range === "all") return true;
-  const date = new Date(iso);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - Number(range));
-  return date >= cutoff;
+interface FinanceInsights {
+  financialInsights: {
+    grossRevenue: number;
+    sponsorshipRevenue: number;
+    platformFees: number;
+    staffCosts: number;
+    venueCosts: number;
+    additionalExpenses: number;
+    taxes: number;
+    totalCosts: number;
+    netProfit: number;
+    profitMarginPercent: number;
+    profitPerBooking: number;
+    averageRevenuePerClass: number;
+    averageProfitPerClass: number;
+    revenueGrowthPercent: number | null;
+    profitGrowthPercent: number | null;
+    paidBookings: number;
+  };
+  classInsights: {
+    totalClasses: number;
+    publishedClasses: number;
+    draftClasses: number;
+    completedClasses: number;
+    cancelledClasses: number;
+    totalBookings: number;
+    paidBookings: number;
+    cancelledBookings: number;
+    waitlistBookings: number;
+    noShowBookings: number;
+    occupancyPercent: number;
+    averageOccupancy: number;
+    revenuePerSponsor: number;
+  };
+  customerInsights: {
+    totalCustomers: number;
+    activeCustomers: number;
+    newCustomers: number;
+    repeatCustomers: number;
+    repeatBookingRatePercent: number;
+    averageBookingsPerCustomer: number;
+    averageRevenuePerCustomer: number;
+    ageGroupDistribution: Record<string, number>;
+    genderDistribution: Record<string, number>;
+    experienceDistribution: Record<string, number>;
+    goalDistribution: Record<string, number>;
+    marketingOptInRate: number;
+    accessibilityRequestRate: number;
+  };
+  rows: {
+    classes: Array<{
+      classId: string;
+      classTitle: string;
+      grossRevenue: number;
+      netProfit: number;
+      sponsorIncome: number;
+      occupancyPercent: number;
+      confirmedBookings: number;
+      paidBookings: number;
+      profitPerBooking: number;
+      breakEvenBookings: number;
+    }>;
+    instructors: Array<{ id: string; label: string; revenue: number; profit: number }>;
+    venues: Array<{ id: string; label: string; usageCount: number; revenue: number; profit: number; cost: number; roiPercent: number }>;
+    sponsors: Array<{ classId: string; classTitle: string; sponsorName: string; sponsorIncome: number; classRevenue: number; netProfit: number; contributionPercent: number }>;
+  };
 }
 
-function countLabels(values: Array<string | undefined | null>) {
-  const counts = new Map<string, number>();
-  values
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value))
-    .forEach((value) => counts.set(value, (counts.get(value) ?? 0) + 1));
-
-  return Array.from(counts.entries())
+function distributionItems(distribution: Record<string, number>) {
+  return Object.entries(distribution)
     .map(([label, value]) => ({ label, value }))
+    .filter((item) => item.value > 0 && item.label !== "Not provided")
     .sort((a, b) => b.value - a.value);
 }
 
+function growthValue(value: number | null) {
+  return value == null ? "Backfill needed" : `${value}%`;
+}
+
+function MoneyMetric({
+  label,
+  value,
+  currency,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+  detail?: string;
+  tone?: "teal" | "indigo" | "sky" | "rose" | "amber" | "emerald" | "slate";
+}) {
+  return <MetricRibbon label={label} value={formatCurrency(value, currency)} detail={detail} tone={tone} />;
+}
+
 export default function OwnerAnalyticsPage() {
-  const { bookings, classes, staff, currentBusiness, loading } = useAppStore();
-  const [chartFocus, setChartFocus] = useState<ChartFocus>("revenue");
-  const [range, setRange] = useState<Range>("all");
+  const { currentBusiness, loading } = useAppStore();
+  const currency = getOperatingCurrency(currentBusiness);
+  const [insights, setInsights] = useState<FinanceInsights | null>(null);
+  const [error, setError] = useState("");
 
-  const analytics = useMemo(() => {
-    const myClasses = classes.filter((cls) => cls.businessId === currentBusiness?.id);
-    const myClassIds = new Set(myClasses.map((cls) => cls.id));
-    const myBookings = bookings
-      .filter((booking) => myClassIds.has(booking.classId))
-      .filter((booking) => withinRange(booking.createdAt, range));
-    const confirmed = myBookings.filter((booking) => booking.bookingStatus === "confirmed");
-    const cancelled = myBookings.filter((booking) => booking.bookingStatus === "cancelled");
-    const paid = confirmed.filter((booking) => booking.paymentStatus === "paid" || booking.amount > 0);
-    const totalRevenue = paid.reduce((sum, booking) => sum + booking.amount, 0);
-    const avgRevenue = confirmed.length > 0 ? Math.round(totalRevenue / confirmed.length) : 0;
-    const confirmedCountByClass = confirmed.reduce<Record<string, number>>((acc, booking) => {
-      acc[booking.classId] = (acc[booking.classId] ?? 0) + 1;
-      return acc;
-    }, {});
-
-    const revenueByClass = myClasses.map((cls) => ({
-      label: cls.title,
-      value: confirmed
-        .filter((booking) => booking.classId === cls.id)
-        .reduce((sum, booking) => sum + booking.amount, 0),
-    })).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
-
-    const bookingsByClass = myClasses.map((cls) => ({
-      label: cls.title,
-      value: confirmed.filter((booking) => booking.classId === cls.id).length,
-    })).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
-
-    const occupancy = myClasses
-      .filter((cls) => cls.status === "published")
-      .map((cls) => ({
-        label: cls.title,
-        value: cls.capacity > 0
-          ? Math.round(((confirmedCountByClass[cls.id] ?? 0) / cls.capacity) * 100)
-          : 0,
-      }))
-      .sort((a, b) => b.value - a.value);
-
-    const myStaff = staff.filter((member) => member.businessId === currentBusiness?.id);
-    const staffStats = myStaff.map((member) => {
-      const classIds = new Set(
-        myClasses
-          .filter((cls) => cls.staffId === member.id || cls.staffIds?.includes(member.id))
-          .map((cls) => cls.id)
-      );
-      const count = confirmed.filter((booking) => classIds.has(booking.classId)).length;
-      return { member, count };
-    }).sort((a, b) => b.count - a.count);
-
-    const customerMap = new Map<string, { name: string; count: number; spent: number }>();
-    for (const booking of confirmed) {
-      const key = booking.customerEmail.toLowerCase();
-      const existing = customerMap.get(key) ?? {
-        name: booking.customerName,
-        count: 0,
-        spent: 0,
-      };
-      existing.count += 1;
-      existing.spent += booking.amount;
-      customerMap.set(key, existing);
-    }
-    const topCustomers = Array.from(customerMap.values()).sort((a, b) => b.count - a.count).slice(0, 6);
-
-    const goalCounts = countLabels(confirmed.flatMap((booking) => booking.goals ?? []));
-    const experienceCounts = countLabels(confirmed.map((booking) => booking.experienceLevel));
-    const ageCounts = countLabels(confirmed.map((booking) => booking.ageRange));
-    const genderCounts = countLabels(confirmed.map((booking) => booking.gender));
-    const profiledBookings = confirmed.filter(
-      (booking) =>
-        booking.ageRange ||
-        booking.gender ||
-        booking.experienceLevel ||
-        (booking.goals && booking.goals.length > 0) ||
-        booking.healthNote ||
-        booking.marketingConsent
-    ).length;
-    const healthNoteCount = confirmed.filter((booking) => booking.healthNote?.trim()).length;
-    const marketingConsentCount = confirmed.filter((booking) => booking.marketingConsent).length;
-
-    const avgOccupancy = occupancy.length > 0
-      ? Math.round(occupancy.reduce((sum, item) => sum + item.value, 0) / occupancy.length)
-      : 0;
-
-    const monthlyRevenue = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - (5 - index));
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      return paid
-        .filter((booking) => booking.createdAt.startsWith(key))
-        .reduce((sum, booking) => sum + booking.amount, 0);
+  useEffect(() => {
+    const businessId = currentBusiness?.id;
+    if (!businessId) return;
+    let active = true;
+    queueMicrotask(() => {
+      fetch(`/api/finance/business/${businessId}/insights`)
+        .then((response) => response.ok ? response.json() : Promise.reject(response))
+        .then((data) => {
+          if (!active) return;
+          setError("");
+          setInsights(data as FinanceInsights);
+        })
+        .catch(() => {
+          if (!active) return;
+          setInsights(null);
+          setError("Could not load finance insights. Run the NF-0F snapshot SQL and recalculate this business.");
+        });
     });
-
-    return {
-      myClasses,
-      myBookings,
-      confirmed,
-      cancelled,
-      totalRevenue,
-      avgRevenue,
-      revenueByClass,
-      bookingsByClass,
-      occupancy,
-      avgOccupancy,
-      staffStats,
-      topCustomers,
-      monthlyRevenue,
-      personalization: {
-        profiledBookings,
-        goalCounts,
-        experienceCounts,
-        ageCounts,
-        genderCounts,
-        healthNoteCount,
-        marketingConsentCount,
-        marketingConsentRate: confirmed.length > 0
-          ? Math.round((marketingConsentCount / confirmed.length) * 100)
-          : 0,
-        topGoal: goalCounts[0]?.label ?? "No goals yet",
-        topExperience: experienceCounts[0]?.label ?? "No level yet",
-      },
-      cancellationRate: myBookings.length > 0 ? Math.round((cancelled.length / myBookings.length) * 100) : 0,
+    return () => {
+      active = false;
     };
-  }, [bookings, classes, currentBusiness, range, staff]);
+  }, [currentBusiness?.id]);
 
-  const chartItems =
-    chartFocus === "revenue"
-      ? analytics.revenueByClass.slice(0, 8)
-      : chartFocus === "bookings"
-        ? analytics.bookingsByClass.slice(0, 8)
-        : chartFocus === "occupancy"
-          ? analytics.occupancy.slice(0, 8)
-          : chartFocus === "staff"
-            ? analytics.staffStats.slice(0, 8).map(({ member, count }) => ({ label: member.name, value: count }))
-            : chartFocus === "customers"
-              ? analytics.topCustomers.map((customer) => ({ label: customer.name, value: customer.count }))
-              : chartFocus === "goals"
-                ? analytics.personalization.goalCounts.slice(0, 8)
-                : analytics.personalization.experienceCounts.slice(0, 8);
+  const charts = useMemo(() => {
+    const classRevenue = (insights?.rows.classes ?? [])
+      .map((row) => ({ label: row.classTitle, value: row.grossRevenue }))
+      .filter((row) => row.value > 0)
+      .slice(0, 8);
+    const classProfit = (insights?.rows.classes ?? [])
+      .map((row) => ({ label: row.classTitle, value: row.netProfit }))
+      .filter((row) => row.value !== 0)
+      .slice(0, 8);
+    const instructorRevenue = (insights?.rows.instructors ?? [])
+      .map((row) => ({ label: row.label, value: row.revenue }))
+      .slice(0, 8);
+    const venueProfit = (insights?.rows.venues ?? [])
+      .map((row) => ({ label: row.label, value: row.profit }))
+      .filter((row) => row.value !== 0)
+      .slice(0, 8);
+    return { classRevenue, classProfit, instructorRevenue, venueProfit };
+  }, [insights]);
 
   if (loading) {
     return (
@@ -204,238 +158,177 @@ export default function OwnerAnalyticsPage() {
     );
   }
 
+  if (!currentBusiness) {
+    return (
+      <main className="min-h-screen px-6 py-10">
+        <div className="mx-auto max-w-3xl rounded-[2rem] bg-white p-8 text-center text-sm font-semibold text-slate-500">
+          No business found.
+        </div>
+      </main>
+    );
+  }
+
+  const financial = insights?.financialInsights;
+  const classInsights = insights?.classInsights;
+  const customer = insights?.customerInsights;
+
   return (
     <main className="min-h-screen px-4 py-7 sm:px-6 sm:py-10">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-7xl space-y-6">
         <section className="visual-panel rounded-[2.25rem] p-5 sm:p-8">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <p className="text-sm font-black uppercase text-indigo-600 dark:text-indigo-300">
-                Owner insights
-              </p>
-              <h1 className="mt-2 text-4xl font-black text-slate-950 dark:text-white sm:text-6xl">
-                Choose the question, update the graph.
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm font-semibold leading-7 text-slate-500 dark:text-slate-300">
-                Switch between revenue, bookings, occupancy, staff, and customer views without leaving the page.
-              </p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="flex gap-1 overflow-x-auto rounded-full bg-white/70 p-1 dark:bg-slate-950/50">
-                {ranges.map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => setRange(item.key)}
-                    className={`touch-pill shrink-0 rounded-full px-4 text-xs font-black ${
-                      range === item.key
-                        ? "bg-indigo-600 text-white"
-                        : "text-slate-500 hover:bg-white dark:hover:bg-slate-900"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-1 overflow-x-auto rounded-full bg-white/70 p-1 dark:bg-slate-950/50">
-                {chartOptions.map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => setChartFocus(item.key)}
-                    className={`touch-pill shrink-0 rounded-full px-4 text-xs font-black ${
-                      chartFocus === item.key
-                        ? "bg-teal-600 text-white"
-                        : "text-slate-500 hover:bg-white dark:hover:bg-slate-900"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricRibbon label="Bookings" value={analytics.myBookings.length} detail={`${analytics.confirmed.length} confirmed`} tone="indigo" />
-            <MetricRibbon label="Revenue" value={`₹${analytics.totalRevenue.toLocaleString("en-IN")}`} detail={`₹${analytics.avgRevenue.toLocaleString("en-IN")} avg`} tone="teal" />
-            <MetricRibbon label="Cancellation" value={`${analytics.cancellationRate}%`} detail={`${analytics.cancelled.length} cancelled`} tone={analytics.cancellationRate > 20 ? "rose" : "slate"} />
-            <MetricRibbon label="Classes" value={analytics.myClasses.length} detail="studio catalog" tone="amber" />
-          </div>
+          <p className="text-sm font-black uppercase text-indigo-600 dark:text-indigo-300">
+            Owner Insights
+          </p>
+          <h1 className="mt-2 text-4xl font-black text-slate-950 dark:text-white sm:text-6xl">
+            Financial, class, and customer signals.
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm font-semibold leading-7 text-slate-500 dark:text-slate-300">
+            Values are loaded from the NF-0F finance snapshot API in {currency}.
+          </p>
+          {error && (
+            <p className="mt-5 rounded-2xl bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800">
+              {error}
+            </p>
+          )}
         </section>
 
-        <section className="mt-6 grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-          <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
-            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300">
-                  Active chart
-                </p>
-                <h2 className="text-2xl font-black capitalize text-slate-950 dark:text-white">
-                  {chartFocus} view
-                </h2>
+        {financial && (
+          <section className="visual-panel rounded-[2rem] p-5 sm:p-6">
+            <div className="mb-5">
+              <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">Financial Insights</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">Snapshot financials</h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MoneyMetric label="Gross Revenue" value={financial.grossRevenue} currency={currency} detail={`${financial.paidBookings} paid bookings`} tone="teal" />
+              <MoneyMetric label="Sponsorship Revenue" value={financial.sponsorshipRevenue} currency={currency} detail="confirmed sponsor income" tone="emerald" />
+              <MoneyMetric label="Platform Fees" value={financial.platformFees} currency={currency} detail="VibePass fee" tone="sky" />
+              <MoneyMetric label="Staff Costs" value={financial.staffCosts} currency={currency} detail="commission + fixed" tone="indigo" />
+              <MoneyMetric label="Venue Costs" value={financial.venueCosts} currency={currency} tone="amber" />
+              <MoneyMetric label="Additional Expenses" value={financial.additionalExpenses} currency={currency} tone="rose" />
+              <MoneyMetric label="Taxes" value={financial.taxes} currency={currency} tone="slate" />
+              <MoneyMetric label="Total Costs" value={financial.totalCosts} currency={currency} tone="rose" />
+              <MoneyMetric label="Net Profit" value={financial.netProfit} currency={currency} tone={financial.netProfit < 0 ? "rose" : "emerald"} />
+              <MetricRibbon label="Profit Margin" value={`${financial.profitMarginPercent}%`} detail="net / gross" tone="teal" />
+              <MoneyMetric label="Profit Per Booking" value={financial.profitPerBooking} currency={currency} tone="indigo" />
+              <MoneyMetric label="Avg Revenue/Class" value={financial.averageRevenuePerClass} currency={currency} tone="sky" />
+              <MoneyMetric label="Avg Profit/Class" value={financial.averageProfitPerClass} currency={currency} tone="emerald" />
+              <MetricRibbon label="Revenue Growth" value={growthValue(financial.revenueGrowthPercent)} detail="period compare" tone="slate" />
+              <MetricRibbon label="Profit Growth" value={growthValue(financial.profitGrowthPercent)} detail="period compare" tone="slate" />
+            </div>
+          </section>
+        )}
+
+        {classInsights && (
+          <section className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+            <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+              <p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300">Class Insights</p>
+              <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">Supply and occupancy</h2>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <MetricRibbon label="Total Classes" value={classInsights.totalClasses} tone="indigo" />
+                <MetricRibbon label="Published" value={classInsights.publishedClasses} tone="emerald" />
+                <MetricRibbon label="Draft" value={classInsights.draftClasses} tone="slate" />
+                <MetricRibbon label="Completed" value={classInsights.completedClasses} tone="teal" />
+                <MetricRibbon label="Cancelled" value={classInsights.cancelledClasses} tone="rose" />
+                <MetricRibbon label="Total Bookings" value={classInsights.totalBookings} tone="sky" />
+                <MetricRibbon label="Paid Bookings" value={classInsights.paidBookings} tone="teal" />
+                <MetricRibbon label="Cancelled Bookings" value={classInsights.cancelledBookings} tone="rose" />
+                <MetricRibbon label="Waitlist" value={classInsights.waitlistBookings} tone="amber" />
+                <MetricRibbon label="No-show" value={classInsights.noShowBookings} tone="slate" />
               </div>
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                Tap the controls above to update this graph.
-              </p>
-            </div>
-            <WaveBars
-              items={chartItems}
-              tone={chartFocus === "revenue" ? "teal" : chartFocus === "occupancy" ? "amber" : "indigo"}
-              valuePrefix={chartFocus === "revenue" ? "₹" : ""}
-            />
-          </div>
-
-          <div className="grid gap-5">
-            <TrendLine
-              points={analytics.monthlyRevenue.length > 0 ? analytics.monthlyRevenue : [0, 0, 0, 0, 0, 0]}
-              label="Six-month revenue"
-              valuePrefix="₹"
-            />
-            <div className="visual-panel rounded-[1.75rem] p-5">
-              <RingGauge value={analytics.avgOccupancy} label="avg occupancy" tone="indigo" />
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 grid gap-5 lg:grid-cols-2">
-          <div className="visual-panel rounded-[2rem] p-5 sm:p-6 lg:col-span-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">
-                  Personalized experience
-                </p>
-                <h2 className="text-2xl font-black text-slate-950 dark:text-white">
-                  What customers tell you before class
-                </h2>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <RingGauge value={classInsights.occupancyPercent} label="occupancy" tone="indigo" />
+                <RingGauge value={classInsights.averageOccupancy} label="average occupancy" tone="teal" />
               </div>
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                Based on optional booking profile fields.
-              </p>
             </div>
 
+            <div className="grid gap-6">
+              <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+                <h3 className="mb-4 text-xl font-black text-slate-950 dark:text-white">Revenue Per Class</h3>
+                <WaveBars items={charts.classRevenue} tone="teal" valuePrefix={getCurrencySymbol(currency)} />
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+                  <h3 className="mb-4 text-xl font-black text-slate-950 dark:text-white">Profit Per Class</h3>
+                  <WaveBars items={charts.classProfit} tone="emerald" valuePrefix={getCurrencySymbol(currency)} />
+                </div>
+                <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+                  <h3 className="mb-4 text-xl font-black text-slate-950 dark:text-white">Revenue Per Instructor</h3>
+                  <WaveBars items={charts.instructorRevenue} tone="indigo" valuePrefix={getCurrencySymbol(currency)} />
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {insights && (
+          <section className="grid gap-6 xl:grid-cols-3">
+            <div className="visual-panel rounded-[2rem] p-5 sm:p-6 xl:col-span-2">
+              <h2 className="text-2xl font-black text-slate-950 dark:text-white">Venue and Sponsor Impact</h2>
+              <div className="mt-5 grid gap-3">
+                {insights.rows.venues.slice(0, 6).map((venue) => (
+                  <div key={venue.id} className="grid gap-2 rounded-[1.35rem] bg-white/70 p-4 text-sm dark:bg-slate-950/40 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
+                    <span className="font-black text-slate-900 dark:text-white">{venue.label}</span>
+                    <span className="text-slate-500">{venue.usageCount} classes</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{formatCurrency(venue.revenue, currency)} revenue</span>
+                    <span className={venue.profit < 0 ? "font-bold text-rose-600" : "font-bold text-emerald-700"}>{formatCurrency(venue.profit, currency)} profit</span>
+                  </div>
+                ))}
+                {insights.rows.venues.length === 0 && <p className="text-sm font-semibold text-slate-400">No venue snapshot rows yet.</p>}
+              </div>
+            </div>
+            <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+              <h2 className="text-2xl font-black text-slate-950 dark:text-white">Revenue Per Sponsor</h2>
+              <div className="mt-5 grid gap-3">
+                {insights.rows.sponsors.slice(0, 6).map((sponsor) => (
+                  <div key={sponsor.classId} className="rounded-[1.35rem] bg-white/70 p-4 dark:bg-slate-950/40">
+                    <p className="font-black text-slate-900 dark:text-white">{sponsor.sponsorName}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">{sponsor.classTitle}</p>
+                    <p className="mt-2 text-sm font-black text-emerald-700">
+                      {formatCurrency(sponsor.sponsorIncome, currency)} · {sponsor.contributionPercent}%
+                    </p>
+                  </div>
+                ))}
+                {insights.rows.sponsors.length === 0 && <p className="text-sm font-semibold text-slate-400">No confirmed sponsor income yet.</p>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {customer && (
+          <section className="visual-panel rounded-[2rem] p-5 sm:p-6">
+            <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">Customer Insights</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">Customer profile and retention</h2>
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricRibbon
-                label="Profiled bookings"
-                value={analytics.personalization.profiledBookings}
-                detail={`${analytics.confirmed.length} confirmed total`}
-                tone="teal"
-              />
-              <MetricRibbon
-                label="Top goal"
-                value={analytics.personalization.topGoal}
-                detail="from selected goals"
-                tone="emerald"
-              />
-              <MetricRibbon
-                label="Common level"
-                value={analytics.personalization.topExperience}
-                detail="experience mix"
-                tone="indigo"
-              />
-              <MetricRibbon
-                label="Marketing opt-in"
-                value={`${analytics.personalization.marketingConsentRate}%`}
-                detail={`${analytics.personalization.marketingConsentCount} customers`}
-                tone="amber"
-              />
+              <MetricRibbon label="Total Customers" value={customer.totalCustomers} tone="teal" />
+              <MetricRibbon label="Active Customers" value={customer.activeCustomers} tone="emerald" />
+              <MetricRibbon label="New Customers" value={customer.newCustomers} tone="sky" />
+              <MetricRibbon label="Repeat Customers" value={customer.repeatCustomers} tone="indigo" />
+              <MetricRibbon label="Repeat Rate" value={`${customer.repeatBookingRatePercent}%`} tone="teal" />
+              <MetricRibbon label="Avg Bookings/Customer" value={customer.averageBookingsPerCustomer} tone="slate" />
+              <MoneyMetric label="Avg Revenue/Customer" value={customer.averageRevenuePerCustomer} currency={currency} tone="emerald" />
+              <MetricRibbon label="Marketing Opt-In" value={`${customer.marketingOptInRate}%`} tone="amber" />
+              <MetricRibbon label="Accessibility Request" value={`${customer.accessibilityRequestRate}%`} tone="rose" />
             </div>
-
-            <div className="mt-5 grid gap-5 xl:grid-cols-3">
+            <div className="mt-6 grid gap-6 xl:grid-cols-4">
               <div>
-                <p className="mb-3 text-xs font-black uppercase text-slate-500 dark:text-slate-400">
-                  Goals
-                </p>
-                <WaveBars items={analytics.personalization.goalCounts.slice(0, 6)} tone="teal" />
+                <p className="mb-3 text-xs font-black uppercase text-slate-500">Age Group Distribution</p>
+                <WaveBars items={distributionItems(customer.ageGroupDistribution)} tone="sky" />
               </div>
               <div>
-                <p className="mb-3 text-xs font-black uppercase text-slate-500 dark:text-slate-400">
-                  Experience
-                </p>
-                <WaveBars items={analytics.personalization.experienceCounts.slice(0, 6)} tone="indigo" />
+                <p className="mb-3 text-xs font-black uppercase text-slate-500">Gender Distribution</p>
+                <WaveBars items={distributionItems(customer.genderDistribution)} tone="teal" />
               </div>
-              <div className="grid gap-3">
-                <div>
-                  <p className="mb-3 text-xs font-black uppercase text-slate-500 dark:text-slate-400">
-                    Age range
-                  </p>
-                  <WaveBars items={analytics.personalization.ageCounts.slice(0, 6)} tone="sky" />
-                </div>
-                <div className="rounded-[1.5rem] bg-white/70 p-4 dark:bg-slate-950/40">
-                  <p className="text-xs font-black uppercase text-slate-400">
-                    Health notes
-                  </p>
-                  <p className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
-                    {analytics.personalization.healthNoteCount}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    customers shared special requirements
-                  </p>
-                </div>
+              <div>
+                <p className="mb-3 text-xs font-black uppercase text-slate-500">Experience Distribution</p>
+                <WaveBars items={distributionItems(customer.experienceDistribution)} tone="indigo" />
+              </div>
+              <div>
+                <p className="mb-3 text-xs font-black uppercase text-slate-500">Goal Distribution</p>
+                <WaveBars items={distributionItems(customer.goalDistribution)} tone="emerald" />
               </div>
             </div>
-
-            {analytics.personalization.genderCounts.length > 0 && (
-              <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4 dark:bg-slate-950/40">
-                <p className="mb-3 text-xs font-black uppercase text-slate-500 dark:text-slate-400">
-                  Gender mix
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {analytics.personalization.genderCounts.map((item) => (
-                    <span
-                      key={item.label}
-                      className="rounded-full bg-teal-100 px-3 py-1 text-xs font-black text-teal-700 dark:bg-teal-950/50 dark:text-teal-200"
-                    >
-                      {item.label}: {item.value}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
-            <h2 className="text-2xl font-black text-slate-950 dark:text-white">
-              Staff performance
-            </h2>
-            <div className="mt-5 grid gap-3">
-              {analytics.staffStats.length === 0 ? (
-                <p className="rounded-[1.5rem] border border-dashed border-slate-200 p-6 text-sm font-semibold text-slate-400 dark:border-slate-700">
-                  Staff data appears once staff are linked to classes.
-                </p>
-              ) : (
-                analytics.staffStats.slice(0, 5).map(({ member, count }) => (
-                  <div key={member.id} className="flex items-center justify-between rounded-[1.35rem] bg-white/70 p-3 dark:bg-slate-950/40">
-                    <AvatarBadge name={member.name} role={member.role} imageUrl={member.imageUrl} tone="indigo" />
-                    <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-black text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200">
-                      {count} bookings
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
-            <h2 className="text-2xl font-black text-slate-950 dark:text-white">
-              Customer pulse
-            </h2>
-            <div className="mt-5 grid gap-3">
-              {analytics.topCustomers.length === 0 ? (
-                <p className="rounded-[1.5rem] border border-dashed border-slate-200 p-6 text-sm font-semibold text-slate-400 dark:border-slate-700">
-                  Customer ranking appears after confirmed bookings.
-                </p>
-              ) : (
-                analytics.topCustomers.map((customer, index) => (
-                  <div key={customer.name + index} className="flex items-center justify-between rounded-[1.35rem] bg-white/70 p-3 dark:bg-slate-950/40">
-                    <AvatarBadge name={customer.name} role={`${customer.count} booking${customer.count !== 1 ? "s" : ""}`} tone="teal" />
-                    <span className="text-sm font-black text-slate-700 dark:text-slate-200">
-                      {customer.spent > 0 ? `₹${customer.spent.toLocaleString("en-IN")}` : "Free"}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
       </div>
     </main>
   );

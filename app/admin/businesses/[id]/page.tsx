@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Select, MultiSelect } from "@/components/CustomSelect";
+import { formatCurrency } from "@/lib/currency";
 
 const ALL_CATEGORIES = [
   "Yoga", "Pilates", "Fitness", "Dance", "Martial Arts",
@@ -46,6 +47,21 @@ interface BizStats {
   publishedCount: number;
   bookingCount: number;
   revenue: number;
+  platformEarning: number;
+  totalStaffEarning: number;
+  ownerNetEarning: number;
+  staffPaidAmount: number;
+  staffUnpaidBalance: number;
+}
+
+interface ClassFinancialRow {
+  classId: string;
+  classTitle: string;
+  grossRevenue: number;
+  netProfit: number;
+  totalCosts: number;
+  sponsorIncome: number;
+  profitMarginPercent: number;
 }
 
 export default function AdminBusinessDetailPage() {
@@ -54,6 +70,7 @@ export default function AdminBusinessDetailPage() {
 
   const [biz, setBiz] = useState<BusinessDetail | null>(null);
   const [stats, setStats] = useState<BizStats | null>(null);
+  const [classFinancials, setClassFinancials] = useState<ClassFinancialRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -74,7 +91,7 @@ export default function AdminBusinessDetailPage() {
     const res = await fetch(`/api/admin/businesses/${id}/data`);
     if (!res.ok) { setLoading(false); return; }
 
-    const { biz: data, stats: s } = await res.json();
+    const { biz: data, stats: s, classFinancials: financialRows } = await res.json();
 
     if (data) {
       setBiz(data as BusinessDetail);
@@ -88,6 +105,7 @@ export default function AdminBusinessDetailPage() {
       setSuspensionReason(data.suspension_reason ?? "");
     }
     setStats(s ?? null);
+    setClassFinancials((financialRows ?? []) as ClassFinancialRow[]);
     setLoading(false);
   }
 
@@ -171,18 +189,58 @@ export default function AdminBusinessDetailPage() {
 
       {/* Stats row */}
       {stats && (
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-6">
           {[
             { label: "Total Classes", value: stats.classCount },
             { label: "Published", value: stats.publishedCount, color: "text-green-600" },
             { label: "Bookings", value: stats.bookingCount },
-            { label: "Revenue", value: `₹${stats.revenue.toLocaleString("en-IN")}`, color: "text-indigo-600" },
+            { label: "Gross", value: formatCurrency(stats.revenue, "INR"), color: "text-indigo-600" },
+            { label: "Platform", value: formatCurrency(stats.platformEarning, "INR"), color: "text-sky-600" },
+            { label: "Owner Net", value: formatCurrency(stats.ownerNetEarning, "INR"), color: stats.ownerNetEarning < 0 ? "text-red-600" : "text-emerald-600" },
           ].map(({ label, value, color }) => (
             <div key={label} className="rounded-2xl bg-white p-4 shadow-sm">
               <p className="text-xs font-semibold text-slate-400">{label}</p>
               <p className={`mt-1 text-xl font-black ${color ?? "text-slate-900"}`}>{value}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {classFinancials.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-slate-200 p-5">
+          <h2 className="mb-4 text-lg font-black text-slate-900">Class Profitability</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-bold uppercase text-slate-400">
+                  <th className="pb-2 pr-4">Class</th>
+                  <th className="pb-2 pr-4 text-right">Gross</th>
+                  <th className="pb-2 pr-4 text-right">Costs</th>
+                  <th className="pb-2 pr-4 text-right">Sponsor</th>
+                  <th className="pb-2 pr-4 text-right">Net Profit</th>
+                  <th className="pb-2 text-right">Margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classFinancials.slice(0, 15).map((row) => (
+                  <tr key={row.classId} className="border-b border-slate-100">
+                    <td className="py-2.5 pr-4 font-medium">{row.classTitle}</td>
+                    <td className="py-2.5 pr-4 text-right">{formatCurrency(row.grossRevenue, "INR")}</td>
+                    <td className="py-2.5 pr-4 text-right text-red-600">{formatCurrency(row.totalCosts, "INR")}</td>
+                    <td className="py-2.5 pr-4 text-right text-emerald-700">{formatCurrency(row.sponsorIncome, "INR")}</td>
+                    <td className={`py-2.5 pr-4 text-right font-bold ${row.netProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {formatCurrency(row.netProfit, "INR")}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                        {row.profitMarginPercent}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -236,7 +294,7 @@ export default function AdminBusinessDetailPage() {
           <div>
             <h2 className="text-sm font-black uppercase tracking-wider text-indigo-600">Platform Margin</h2>
             <p className="mt-0.5 text-xs text-indigo-500">
-              The percentage VibePass takes from each paid class booking at this studio.
+              Platform margin is applied to total eligible paid class revenue. Staff commissions are deducted from owner net earnings. Dummy payments count for staging analytics only.
               {biz.margin_set_at && ` Last updated ${new Date(biz.margin_set_at).toLocaleDateString("en-IN")}.`}
             </p>
           </div>
@@ -248,7 +306,7 @@ export default function AdminBusinessDetailPage() {
                 <input
                   type="number"
                   min="0"
-                  max="50"
+                  max="100"
                   step="0.5"
                   value={platformMargin}
                   onChange={(e) => setPlatformMargin(e.target.value)}
@@ -269,6 +327,13 @@ export default function AdminBusinessDetailPage() {
                 className="w-full rounded-xl border border-indigo-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
             </div>
           </div>
+          {stats && (
+            <div className="grid gap-2 rounded-2xl bg-white/70 p-4 text-xs font-bold text-slate-600 sm:grid-cols-3">
+              <span>Staff commission {formatCurrency(stats.totalStaffEarning, "INR")}</span>
+              <span>Staff paid {formatCurrency(stats.staffPaidAmount, "INR")}</span>
+              <span>Unpaid {formatCurrency(stats.staffUnpaidBalance, "INR")}</span>
+            </div>
+          )}
         </div>
 
         {/* Categories */}

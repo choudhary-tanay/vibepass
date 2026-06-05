@@ -204,6 +204,14 @@ Use these statuses:
 * [x] Add Google Maps variable as placeholder.
 * [x] Confirm real `.env.local` is not committed. — `.env.local` is gitignored by `.env*`
 
+## 7.2A NF-0F Finance Snapshot SQL
+
+* [ ] Run `supabase/nf0f-finance-snapshots.sql` after NF-1B operations SQL.
+* [ ] Backfill existing business finance snapshots with `POST /api/finance/recalculate/business/[businessId]`.
+* [ ] Confirm `booking_financial_snapshots`, `class_financial_snapshots`, and `staff_earning_snapshots` exist.
+* [ ] Confirm Owner/Staff portals show business operating currency only.
+* [ ] Confirm platform margin 0% creates a 0 platform fee for future booking snapshots.
+
 Recommended `.env.example`:
 
 ```env
@@ -962,6 +970,86 @@ Updated by: Claude
 * Step 9 (staging QA): completed with passes, failures, and blockers documented; no fixes attempted
 * Docker build: not yet run — Docker daemon is available when you want to test
 * `npm run build`: passed on 2026-06-04
+
+## NF-0B Revenue Split Staging QA
+
+Prerequisite:
+
+```text
+Run supabase/nf0b-revenue-split-payouts.sql in the Supabase SQL Editor.
+Keep NEXT_PUBLIC_PAYMENTS_MODE=dummy and NEXT_PUBLIC_PAYMENTS_ENABLED=false for staging.
+Do not enable Razorpay.
+```
+
+Manual checks:
+
+1. Admin opens `/admin/businesses/[id]`, sets Platform Margin % between 0 and 100, saves, and sees success.
+2. Admin opens `/admin/dashboard`, `/admin/analytics`, `/admin/businesses`, and `/admin/classes`; split values are visible.
+3. Owner opens `/owner/classes/create`, assigns multiple instructors, sets one percentage commission and one fixed commission, saves as draft/published as allowed.
+4. Owner opens `/owner/classes/[id]/edit`; commission rules persist and can be updated.
+5. Customer creates a dummy paid booking for that class; no real payment is collected.
+6. Owner opens `/owner/dashboard`, `/owner/analytics`, and `/owner/classes`; gross, platform fee, staff commission, owner net, and paid booking count are consistent.
+7. Owner opens `/owner/staff`, confirms staff earnings/payables rows, records a partial payout, then records the remaining payout.
+8. Overpayment attempt is rejected.
+9. Staff logs in and opens `/staff/dashboard`, `/staff/classes`, and `/staff/profile`; only own earnings and payout status are visible.
+10. Customer/public class and booking pages do not show platform margin, owner net, staff commission, or payout details.
+11. Cancelled/refunded bookings do not count toward earned revenue.
+12. If staff commission plus platform fee exceeds gross revenue, owner/admin UI shows negative owner net clearly.
+
+## NF-1 Access And Operations Foundation Staging QA
+
+Prerequisite:
+
+```text
+Run supabase/nf1-access-operations-foundation.sql in the Supabase SQL Editor after nf0e-exchange-rates.sql.
+Keep NEXT_PUBLIC_PAYMENTS_MODE=dummy and NEXT_PUBLIC_PAYMENTS_ENABLED=false for staging.
+Do not enable Razorpay.
+```
+
+Manual checks:
+
+1. Confirm SQL created `permission_definitions`, `platform_roles`, `business_roles`, `business_users`, and `business_user_invites`.
+2. Confirm existing admin profiles were seeded into `platform_users` as VibePass Super Admin.
+3. Confirm existing business owners were seeded into `business_users` as Owner Studio Admin.
+4. Owner opens `/owner/users` and sees business users, presets, permission catalog, and custom role form.
+5. Owner creates a custom role with limited permissions and confirms it appears in role permissions.
+6. Owner invites a user from `/owner/users`; copyable `/staff/invite/[token]` link is returned.
+7. Invitee accepts the staff invite; `staff`, `profiles`, and `business_users` link to the same user.
+8. Owner changes a non-owner user's role/status and confirms the table updates after refresh.
+9. Instructor/non-authorized user cannot call `/api/owner/users` or `/api/owner/roles`.
+10. Admin opens `/admin/access` and sees VibePass Interface platform presets.
+11. Super Admin assigns a Support/Finance/Ops/Moderator preset and confirms `platform_users` updates.
+12. Non-admin user cannot call `/api/admin/access`.
+13. User without `payouts.mark_paid` cannot record a staff payout; owner can still record valid payouts.
+14. Customer marketplace, class detail, booking, and dummy payment flows still behave the same.
+
+## NF-1B Venues, Sponsors, Branding, Notifications Staging QA
+
+Prerequisite:
+
+```text
+Run supabase/nf1b-operations-modules.sql in the Supabase SQL Editor after nf1-access-operations-foundation.sql.
+Keep NEXT_PUBLIC_PAYMENTS_MODE=dummy and NEXT_PUBLIC_PAYMENTS_ENABLED=false for staging.
+Do not enable Razorpay.
+```
+
+Manual checks:
+
+1. Confirm SQL created `venues`, `class_venues`, `sponsors`, `class_sponsors`, `notifications`, business branding columns, and class venue link/cost columns.
+2. Owner opens `/owner/venues`, creates a venue, and toggles active/inactive.
+3. Admin opens `/admin/venues`, creates a global venue, and confirms the owner/staff venue APIs can see it.
+4. Staff opens `/staff/venues` and sees linked-business venues plus active global venues only.
+5. Owner opens `/owner/classes/create`, selects a saved/global venue, confirms location/name/default cost are copied, saves, and confirms `venue_id` persisted.
+6. Owner opens `/owner/classes/[id]/edit`, changes saved venue or overrides venue cost, saves, and confirms the values persist after refresh.
+7. Owner opens `/owner/sponsors`, creates a sponsor, and attaches it to a class with amount/currency/payment status.
+8. Owner toggles sponsor public/private. Public class detail shows only public sponsor name/logo/message and never shows amount/payment status.
+9. Admin opens `/admin/sponsors` and sees sponsor records, class sponsorships, amounts, payment status, and public/private state.
+10. Owner opens `/owner/settings`, saves public display name, tagline, brand colors, cover image URL, and logo.
+11. Owner sidebar, Staff sidebar, marketplace class cards, class detail, and public business profile show branding where present.
+12. Empty branding fields fall back to existing VibePass/class artwork.
+13. Insert or seed a notification row for owner/staff/admin, then confirm the notification bell shows unread count, priority, message, action link, and mark-read behavior.
+14. Non-owner/non-admin users receive 403 from owner/admin venue and sponsor APIs.
+15. Customer browse, booking, owner class create/edit, staff invite/profile, revenue/profitability, and dummy payment mode still behave the same.
 
 ## Staging Launch Decision
 

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
 import { supabase } from "@/lib/supabaseClient";
+import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
+import type { StaffEarningSummary } from "@/types";
 
 const ROLE_LABELS: Record<string, string> = {
   instructor: "Instructor",
@@ -14,8 +16,18 @@ const ROLE_LABELS: Record<string, string> = {
 
 type Tab = "active" | "inactive" | "pending";
 
+interface PayoutModalState {
+  earning: StaffEarningSummary;
+  amount: string;
+  paymentDate: string;
+  note: string;
+  reference: string;
+}
+
+
 export default function StaffListPage() {
   const { staff, classes, currentBusiness, loading } = useAppStore();
+  const bizCurrency = getOperatingCurrency(currentBusiness);
   const [tab, setTab] = useState<Tab>("active");
 
   // Pending invites: email → invite URL
@@ -23,6 +35,18 @@ export default function StaffListPage() {
   const [pendingEmails, setPendingEmails] = useState<Set<string>>(new Set());
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [staffEarnings, setStaffEarnings] = useState<StaffEarningSummary[]>([]);
+  const [payoutModal, setPayoutModal] = useState<PayoutModalState | null>(null);
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutSuccess, setPayoutSuccess] = useState<string | null>(null);
+
+  async function loadRevenue() {
+    const response = await fetch("/api/owner/revenue").catch(() => null);
+    if (!response?.ok) return;
+    const data = await response.json();
+    setStaffEarnings((data.staffEarnings ?? []) as StaffEarningSummary[]);
+  }
 
   useEffect(() => {
     if (!currentBusiness) return;
@@ -44,6 +68,9 @@ export default function StaffListPage() {
         setPendingInvites(urlMap);
         setPendingEmails(emailSet);
       });
+    queueMicrotask(() => {
+      void loadRevenue();
+    });
   }, [currentBusiness]);
 
   async function generateInvite(email: string, role: string) {
@@ -69,6 +96,43 @@ export default function StaffListPage() {
     await navigator.clipboard.writeText(url);
     setCopiedEmail(email);
     setTimeout(() => setCopiedEmail(null), 2000);
+  }
+
+  async function submitPayout(e: React.FormEvent) {
+    e.preventDefault();
+    if (!payoutModal) return;
+    const amount = Number(payoutModal.amount);
+    setPayoutError(null);
+    setPayoutSuccess(null);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPayoutError("Amount must be greater than 0.");
+      return;
+    }
+    if (amount > payoutModal.earning.staffUnpaidBalance) {
+      setPayoutError(`Amount exceeds remaining balance of ${formatCurrency(payoutModal.earning.staffUnpaidBalance, bizCurrency)}.`);
+      return;
+    }
+    setPayoutSaving(true);
+    const response = await fetch("/api/owner/staff-payouts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classStaffId: payoutModal.earning.classStaffId,
+        amount,
+        paymentDate: payoutModal.paymentDate,
+        note: payoutModal.note,
+        reference: payoutModal.reference,
+      }),
+    });
+    setPayoutSaving(false);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      setPayoutError(data.error ?? "Failed to record staff payout.");
+      return;
+    }
+    setPayoutSuccess("Staff payout recorded.");
+    setPayoutModal(null);
+    await loadRevenue();
   }
 
   if (loading) {
@@ -129,6 +193,84 @@ export default function StaffListPage() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-5xl">
+        {payoutModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <form onSubmit={submitPayout} className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+              <h2 className="text-lg font-black text-slate-950">Mark staff payout as paid</h2>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm">
+                <p className="font-black text-slate-900">{payoutModal.earning.staffName}</p>
+                <p className="mt-1 text-slate-500">{payoutModal.earning.classTitle}</p>
+                <div className="mt-3 grid gap-2 text-xs font-bold text-slate-500 sm:grid-cols-3">
+                  <span>Earned {formatCurrency(payoutModal.earning.staffEarning, bizCurrency)}</span>
+                  <span>Paid {formatCurrency(payoutModal.earning.staffPaidAmount, bizCurrency)}</span>
+                  <span>Balance {formatCurrency(payoutModal.earning.staffUnpaidBalance, bizCurrency)}</span>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-bold text-slate-700">
+                  Amount paid
+                  <input
+                    type="number"
+                    min="0.01"
+                    max={payoutModal.earning.staffUnpaidBalance}
+                    step="0.01"
+                    value={payoutModal.amount}
+                    onChange={(event) => setPayoutModal((prev) => prev ? { ...prev, amount: event.target.value } : prev)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </label>
+                <label className="text-sm font-bold text-slate-700">
+                  Payment date
+                  <input
+                    type="date"
+                    value={payoutModal.paymentDate}
+                    onChange={(event) => setPayoutModal((prev) => prev ? { ...prev, paymentDate: event.target.value } : prev)}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </label>
+                <label className="text-sm font-bold text-slate-700 sm:col-span-2">
+                  Reference
+                  <input
+                    type="text"
+                    value={payoutModal.reference}
+                    onChange={(event) => setPayoutModal((prev) => prev ? { ...prev, reference: event.target.value } : prev)}
+                    placeholder="Bank reference, UPI ID, cash note"
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </label>
+                <label className="text-sm font-bold text-slate-700 sm:col-span-2">
+                  Note
+                  <textarea
+                    value={payoutModal.note}
+                    onChange={(event) => setPayoutModal((prev) => prev ? { ...prev, note: event.target.value } : prev)}
+                    rows={3}
+                    className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </label>
+              </div>
+              {payoutError && (
+                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">{payoutError}</p>
+              )}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setPayoutModal(null); setPayoutError(null); }}
+                  disabled={payoutSaving}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={payoutSaving}
+                  className="rounded-full bg-indigo-600 px-5 py-2 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {payoutSaving ? "Saving..." : "Confirm payment"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
         {/* Header */}
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -139,6 +281,9 @@ export default function StaffListPage() {
             <p className="text-sm text-slate-500">{activeStaff.length} active staff member{activeStaff.length !== 1 ? "s" : ""}</p>
           </div>
           <div className="flex gap-2">
+            <Link href="/owner/users" className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              User Management
+            </Link>
             <Link href="/owner/staff/invite" className="rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100">
               Invite via Link
             </Link>
@@ -283,6 +428,103 @@ export default function StaffListPage() {
             </table>
           </div>
         )}
+
+        <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Staff earnings and payables</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Commission is calculated from eligible paid bookings. Payouts are owner-to-staff records.
+              </p>
+            </div>
+            {payoutSuccess && (
+              <p className="rounded-full bg-green-50 px-4 py-2 text-xs font-black text-green-700">
+                {payoutSuccess}
+              </p>
+            )}
+          </div>
+
+          {staffEarnings.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+              <p className="text-sm font-semibold text-slate-400">
+                Staff payable rows appear after instructors are assigned to classes.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full min-w-[880px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left">
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Staff</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Class</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Gross</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Rule</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Earned</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Paid</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Balance</th>
+                    <th className="px-4 py-3 text-xs font-black uppercase text-slate-400">Status</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {staffEarnings.map((earning) => (
+                    <tr key={earning.classStaffId} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-semibold text-slate-900">{earning.staffName}</td>
+                      <td className="px-4 py-3 text-slate-600">{earning.classTitle}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {earning.grossClassRevenue ? <span>{formatCurrency(earning.grossClassRevenue, bizCurrency)}</span> : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {earning.commissionType === "percentage"
+                          ? `${earning.commissionValue}%`
+                          : <><span>{earning.commissionValue ? formatCurrency(earning.commissionValue, bizCurrency) : "—"}</span><span className="text-xs text-slate-400"> fixed</span></>}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        {earning.staffEarning ? <span>{formatCurrency(earning.staffEarning, bizCurrency)}</span> : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {earning.staffPaidAmount ? <span>{formatCurrency(earning.staffPaidAmount, bizCurrency)}</span> : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        {earning.staffUnpaidBalance ? <span>{formatCurrency(earning.staffUnpaidBalance, bizCurrency)}</span> : <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-black capitalize ${
+                          earning.staffPayoutStatus === "paid" ? "bg-green-100 text-green-700"
+                            : earning.staffPayoutStatus === "partially_paid" ? "bg-amber-100 text-amber-700"
+                            : earning.staffPayoutStatus === "unpaid" ? "bg-red-100 text-red-600"
+                            : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {earning.staffPayoutStatus.replace("_", " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          disabled={earning.staffUnpaidBalance <= 0}
+                          onClick={() => {
+                            setPayoutError(null);
+                            setPayoutSuccess(null);
+                            setPayoutModal({
+                              earning,
+                              amount: String(earning.staffUnpaidBalance),
+                              paymentDate: new Date().toISOString().slice(0, 10),
+                              note: "",
+                              reference: "",
+                            });
+                          }}
+                          className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Mark as Paid
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );

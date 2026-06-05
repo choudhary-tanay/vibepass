@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { MetricRibbon, RingGauge, TrendLine, WaveBars } from "@/components/PortalCharts";
 import { supabase } from "@/lib/supabaseClient";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
+import { useCurrencyDisplay } from "@/lib/hooks/useCurrencyDisplay";
+import { useAppStore } from "@/lib/appStore";
 
 interface Stats {
   totalBusinesses: number;
@@ -23,6 +25,8 @@ interface Stats {
   totalUsers: number;
   totalGMV: number;
   platformRevenue: number;
+  totalStaffCommissions: number;
+  ownerNetRevenue: number;
   refundRequiredPayments: number;
 }
 
@@ -68,6 +72,8 @@ function ActionRow({
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const { profile } = useAppStore();
+  const { fmt, displayCurrency, ratesLoaded } = useCurrencyDisplay(profile?.preferredCurrency);
 
   useEffect(() => {
     async function load() {
@@ -78,37 +84,17 @@ export default function AdminDashboard() {
         { data: users },
         { data: reports },
         { data: payments },
+        revenueResponse,
       ] = await Promise.all([
-        supabase.from("businesses").select("id, status, review_requested, platform_margin"),
+        supabase.from("businesses").select("id, status, review_requested"),
         supabase.from("classes").select("status, is_admin_hidden, featured"),
         supabase.from("bookings").select("booking_status, payment_status, amount, business_id"),
         supabase.from("profiles").select("id"),
         supabase.from("reports").select("status"),
         supabase.from("payments").select("status"),
+        fetch("/api/admin/revenue").catch(() => null),
       ]);
-
-      // Only confirmed + paid bookings count toward revenue
-      const confirmedPaid = (bookings ?? []).filter(
-        (b) => b.booking_status === "confirmed" && b.payment_status === "paid"
-      );
-
-      const totalGMV = confirmedPaid.reduce((sum, b) => sum + (b.amount ?? 0), 0);
-
-      // Platform revenue = per-business GMV × that business's margin
-      const bizMarginMap: Record<string, number> = {};
-      const bizGMV: Record<string, number> = {};
-      for (const biz of businesses ?? []) {
-        bizMarginMap[biz.id] = biz.platform_margin ?? 0;
-      }
-      for (const b of confirmedPaid) {
-        if (b.business_id) bizGMV[b.business_id] = (bizGMV[b.business_id] ?? 0) + (b.amount ?? 0);
-      }
-      const platformRevenue = Math.round(
-        Object.entries(bizGMV).reduce(
-          (sum, [bizId, gmv]) => sum + gmv * ((bizMarginMap[bizId] ?? 0) / 100),
-          0
-        ) * 100
-      ) / 100;
+      const revenueData = revenueResponse?.ok ? await revenueResponse.json() : null;
 
       setStats({
         totalBusinesses: businesses?.length ?? 0,
@@ -129,8 +115,10 @@ export default function AdminDashboard() {
         confirmedBookings: (bookings ?? []).filter((b) => b.booking_status === "confirmed").length,
         cancelledBookings: (bookings ?? []).filter((b) => b.booking_status === "cancelled").length,
         totalUsers: users?.length ?? 0,
-        totalGMV,
-        platformRevenue,
+        totalGMV: revenueData?.platformSummary?.totalGrossRevenue ?? 0,
+        platformRevenue: revenueData?.platformSummary?.platformEarning ?? 0,
+        totalStaffCommissions: revenueData?.platformSummary?.totalStaffEarning ?? 0,
+        ownerNetRevenue: revenueData?.platformSummary?.ownerNetEarning ?? 0,
         refundRequiredPayments: (payments ?? []).filter((p) => p.status === "refund_required").length,
       });
       setLoading(false);
@@ -240,22 +228,27 @@ export default function AdminDashboard() {
           <div className="rounded-[1.75rem] bg-slate-950 p-5 text-white shadow-2xl">
             <p className="text-xs font-black uppercase text-sky-200">Platform revenue (VibePass cut)</p>
             <p className="mt-2 text-4xl font-black">
-              ₹{stats.platformRevenue.toLocaleString("en-IN")}
+              {fmt(stats.platformRevenue, "INR")}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-400">
-              GMV ₹{stats.totalGMV.toLocaleString("en-IN")} from confirmed bookings
+              GMV {fmt(stats.totalGMV, "INR")} from confirmed bookings
             </p>
             <p className="mt-2 text-sm font-semibold text-slate-300">
               {stats.confirmedBookings} confirmed · {derived.conversion}% conversion
             </p>
+            {displayCurrency !== "INR" && ratesLoaded && (
+              <p className="mt-2 text-xs text-slate-400">
+                Converted to {displayCurrency} using admin-managed rates. Original values stored in INR.
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-7 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricRibbon label="Gross GMV" value={fmt(stats.totalGMV, "INR")} detail={`${stats.confirmedBookings} confirmed`} tone="teal" />
+          <MetricRibbon label="Staff commission" value={fmt(stats.totalStaffCommissions, "INR")} detail="owed to instructors" tone="indigo" />
+          <MetricRibbon label="Owner net" value={fmt(stats.ownerNetRevenue, "INR")} detail="after fees + staff" tone={stats.ownerNetRevenue < 0 ? "rose" : "emerald"} />
           <MetricRibbon label="Businesses" value={stats.activeBusinesses} detail={`${stats.totalBusinesses} total`} tone="sky" />
-          <MetricRibbon label="Classes" value={stats.publishedClasses} detail={`${stats.featuredClasses} featured`} tone="indigo" />
-          <MetricRibbon label="Bookings" value={stats.totalBookings} detail={`${stats.cancelledBookings} cancelled`} tone="teal" />
-          <MetricRibbon label="Users" value={stats.totalUsers} detail="profiles" tone="amber" />
         </div>
       </section>
 

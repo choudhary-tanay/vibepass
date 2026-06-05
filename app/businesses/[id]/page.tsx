@@ -47,6 +47,7 @@ export default function BusinessPage() {
       c.status === "published" &&
       isFutureDate(c.date)
   );
+  const businessDisplayName = business.publicDisplayName ?? business.businessName;
 
   function getClassInstructors(cls: (typeof classes)[number]) {
     const staffIds =
@@ -72,13 +73,27 @@ export default function BusinessPage() {
         </Link>
 
         {/* Business header card */}
-        <div className="mb-8 rounded-2xl bg-white p-7 shadow-sm">
+        <div className="mb-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+          {business.coverImageUrl ? (
+            <div
+              className="h-36 bg-cover bg-center sm:h-48"
+              style={{ backgroundImage: `url(${business.coverImageUrl})` }}
+            />
+          ) : (
+            <div
+              className="h-24 sm:h-32"
+              style={{
+                background: `linear-gradient(135deg, ${business.brandColor ?? "#0f766e"}, ${business.brandSecondaryColor ?? "#4f46e5"})`,
+              }}
+            />
+          )}
+          <div className="p-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             {business.logoUrl && (
               <img
                 src={business.logoUrl}
-                alt={`${business.businessName} logo`}
-                className="h-16 w-16 rounded-2xl object-cover shadow-sm"
+                alt={`${businessDisplayName} logo`}
+                className="-mt-16 h-20 w-20 rounded-2xl border-4 border-white object-cover shadow-sm"
               />
             )}
             <div className="flex-1">
@@ -93,8 +108,11 @@ export default function BusinessPage() {
                 )}
               </div>
               <h1 className="text-2xl font-bold text-gray-900">
-                {business.businessName}
+                {businessDisplayName}
               </h1>
+              {business.brandTagline && (
+                <p className="mt-1 text-sm font-bold text-slate-500">{business.brandTagline}</p>
+              )}
               {business.description && (
                 <p className="mt-2 text-sm leading-relaxed text-gray-600">
                   {business.description}
@@ -104,7 +122,7 @@ export default function BusinessPage() {
             <ReportButton
               entityType="business"
               entityId={business.id}
-              entityName={business.businessName}
+              entityName={businessDisplayName}
             />
           </div>
 
@@ -134,6 +152,7 @@ export default function BusinessPage() {
               </div>
             )}
           </div>
+          </div>
         </div>
 
         {/* Classes section */}
@@ -152,7 +171,9 @@ export default function BusinessPage() {
               <ClassCard
                 key={cls.id}
                 cls={cls}
-                businessName={business.businessName}
+                businessName={businessDisplayName}
+                businessLogoUrl={business.logoUrl}
+                businessBrandColor={business.brandColor}
                 instructors={getClassInstructors(cls)}
               />
             ))}

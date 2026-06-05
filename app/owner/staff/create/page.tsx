@@ -121,6 +121,7 @@ export default function CreateStaffPage() {
         body: JSON.stringify({
                   email: form.email.trim(),
                   role: form.role,
+          userGroup: form.userGroup,
           businessId: currentBusiness.id,
         }),
       });

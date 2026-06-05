@@ -39,6 +39,42 @@ The blueprint contains the current bug tracker, blocker list, file ownership map
 - Resend optional for email
 - Vercel staging deployment
 
+## Revenue Split And Staff Payouts
+
+NF-0B adds dynamic revenue split calculations for admin, owner, and staff portals:
+
+- Gross revenue counts confirmed + paid bookings only.
+- Platform earning uses the business platform margin.
+- Staff commission supports percentage or fixed-per-paid-booking rules per instructor assignment.
+- Owner net = gross revenue - platform earning - staff commission.
+- `staff_payouts` records owner-to-staff payments and is separate from customer `payments`.
+
+Run `supabase/nf0b-revenue-split-payouts.sql` in Supabase before testing commission rules or staff payout marking. Razorpay remains deferred; dummy paid bookings count only for staging analytics.
+
+## Access And Operations Foundation
+
+NF-1 adds database-backed roles and permissions:
+
+- VibePass Interface platform presets: Super Admin, Support, Finance/Ops, Moderator.
+- Owner Studio presets: Owner Studio Admin, Management, Instructor.
+- Owner Studio custom roles with permission keys.
+- Business users and invites linked to the existing staff invite flow.
+- New pages: `/owner/users` and `/admin/access`.
+
+Run `supabase/nf1-access-operations-foundation.sql` before testing Owner Studio user management, VibePass Interface role assignment, or permission-gated staff payout marking.
+
+## Operations Modules
+
+NF-1B adds venues, sponsors, branding, and in-app portal notifications:
+
+- New pages: `/owner/venues`, `/admin/venues`, `/staff/venues`, `/owner/sponsors`, `/admin/sponsors`.
+- Saved/global venues can be selected from owner class create/edit and feed venue cost/profitability fields.
+- Owners can attach sponsors to classes; public class detail only shows sponsor display fields when public.
+- Owner Settings can save public display name, tagline, brand colors, cover image URL, and logo.
+- Owner, Staff, and Admin sidebars include the in-app notification bell.
+
+Run `supabase/nf1b-operations-modules.sql` after `supabase/nf1-access-operations-foundation.sql` before testing these routes.
+
 ## Local Commands
 
 ```bash

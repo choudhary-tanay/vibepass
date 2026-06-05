@@ -16,6 +16,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/staff/dashboard/") ||
     pathname === "/staff/classes" ||
     pathname.startsWith("/staff/classes/") ||
+    pathname === "/staff/venues" ||
+    pathname.startsWith("/staff/venues/") ||
+    pathname === "/staff/approvals" ||
+    pathname.startsWith("/staff/approvals/") ||
+    pathname === "/staff/staff" ||
+    pathname.startsWith("/staff/staff/") ||
     pathname === "/staff/profile" ||
     pathname.startsWith("/staff/profile/");
 

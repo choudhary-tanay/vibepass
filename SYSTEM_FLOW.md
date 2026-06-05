@@ -652,6 +652,60 @@ Admin dashboard loads:
 
 ---
 
+### Flow H: Revenue split, staff commission, and staff payouts
+
+NF-0B adds a shared dynamic earnings engine.
+
+Eligible paid bookings:
+
+```text
+booking_status = confirmed
+payment_status = paid
+```
+
+Class-level formulas:
+
+```text
+total_class_revenue = sum(eligible booking.amount)
+platform_earning = total_class_revenue x platform_margin_percent / 100
+owner_gross_after_platform_fee = total_class_revenue - platform_earning
+staff percentage earning = total_class_revenue x commission_value / 100
+staff fixed earning = commission_value x eligible_paid_booking_count
+total_staff_earning = sum(per-instructor earning)
+owner_net_earning = total_class_revenue - platform_earning - total_staff_earning
+staff_unpaid_balance = staff_earning - sum(staff_payouts.amount)
+```
+
+Payout status:
+
+```text
+staff_earning = 0 -> no_earning
+paid = 0 and earning > 0 -> unpaid
+paid > 0 and paid < earning -> partially_paid
+paid >= earning -> paid
+```
+
+Data model:
+
+- `businesses.platform_margin` remains the legacy platform margin field.
+- `businesses.platform_margin_percent` is added by `nf0b-revenue-split-payouts.sql` as the clearer NF-0B alias.
+- `class_staff.commission_type` supports `percentage` or `fixed`.
+- `class_staff.commission_value` stores the percent or fixed per-booking value.
+- `staff_payouts` records actual owner-to-staff payments and is separate from customer `payments`.
+
+Visibility:
+
+- Admin sees all revenue split and staff payout data.
+- Owner sees only their own business revenue and can insert payouts only for their own staff/class assignments.
+- Staff sees only their own earnings and payout status.
+- Customer pages show public pricing and booking/payment status only; internal split data stays hidden.
+
+MVP limitation:
+
+- Earnings are recalculated dynamically from current margin and commission rules. This is acceptable for staging/dummy payments. Before real Razorpay settlement, add snapshot fields or settlement records so historical earnings are locked.
+
+---
+
 ## 9. Data Models
 
 ### Status Enums
@@ -909,6 +963,99 @@ All API routes under `app/api/` use `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS fo
 
 ---
 
+## 12A. Access And Permission Flow
+
+NF-1 keeps `profiles.role` as the coarse portal gate and adds database-backed permissions for platform and business operations.
+
+### VibePass Interface
+
+```text
+Authenticated user
+→ profiles.role must be admin
+→ platform_users row selects platform_role
+→ platform_role_permissions grants permission key
+→ /api/admin/access and future high-risk admin APIs enforce permission
+```
+
+Preset platform roles:
+
+- VibePass Super Admin
+- VibePass Support
+- VibePass Finance/Ops
+- VibePass Moderator
+
+### Owner Studio
+
+```text
+Authenticated user
+→ business_users row links user to business
+→ business_role_permissions grants permission key
+→ /api/owner/users, /api/owner/roles, and payout marking enforce permission
+```
+
+Preset business roles:
+
+- Owner Studio Admin
+- Management
+- Instructor
+- Business-scoped custom roles
+
+Existing owners bypass business permission checks for their own business. Platform admins bypass business permission checks for inspection/support. Customer/public flows do not read access tables.
+
+### Staff Invite Bridge
+
+```text
+Owner invite
+→ business_user_invites + business_users(invited)
+→ staff_invites token remains current acceptance path
+→ staff accepts /staff/invite/[token]
+→ staff row links user_id
+→ business_users row becomes active with user_id + staff_id
+```
+
+This keeps the existing staff invite/login/profile flow intact while giving Owner Studio a proper permission source of truth.
+
+---
+
+## 12B. Venues, Sponsors, Branding, Notifications Flow
+
+NF-1B adds operations tables and surfaces after the access foundation.
+
+```text
+Owner/API permission
+→ venues/sponsors are scoped to business_id
+→ classes can snapshot selected venue + class-level cost
+→ public class detail reads only public class_sponsors display fields
+```
+
+Venue flow:
+
+- Owners create business venues at `/owner/venues`.
+- Admins create global venues at `/admin/venues`.
+- Staff can view linked-business and global venues at `/staff/venues`.
+- Owner class create/edit can select saved/global venues and persist `venue_id`, venue cost, currency, and note.
+
+Sponsor flow:
+
+- Owners create sponsors at `/owner/sponsors`.
+- Owners attach sponsors to classes with amount/currency/payment/internal notes.
+- Public class detail calls `/api/classes/[id]/sponsors` and only renders records where `show_sponsor_publicly = true`.
+- Customers never see sponsor amount or payment status.
+
+Branding flow:
+
+- Owner Settings writes optional branding fields on `businesses`.
+- Owner sidebar, Staff sidebar, marketplace cards, class detail, and public business page prefer public display name/logo/tagline/colors when present.
+- Missing branding fields fall back to existing VibePass/class artwork.
+
+Notification flow:
+
+- `notifications` stores recipient user/role, business/entity context, title/message/action URL, priority, and read state.
+- Owner, staff, and admin sidebars use `NotificationBell`.
+- Users can mark their own notification rows read.
+
+---
+
 ## 13. Key Business Rules & Impact Chains
 
 ### Rule 1: Cancelling a class cancels all its bookings
@@ -997,3 +1144,15 @@ platformRevenue = sum per business: bizGMV × (platform_margin / 100)
 - Browser code uses anon key + RLS — queries return only what the authenticated user is allowed to see.
 - Razorpay payment signature verified server-side before booking is created.
 - Role-based access enforced at both the page level (redirect) and data level (RLS).
+# NF-0F Finance Snapshot Flow — 2026-06-05
+
+Finance formulas now flow through `lib/finance` first:
+
+1. Booking/class/staff/expense/sponsor/payout mutations call `lib/finance/snapshots.ts`.
+2. Booking-time values are stored in `booking_financial_snapshots`.
+3. Current dashboard/reporting values are stored in `class_financial_snapshots`.
+4. Current staff earning/payout values are stored in `staff_earning_snapshots`.
+5. Owner/Staff pages prefer `/api/finance/*` or snapshot rows and display only business operating currency.
+6. Existing NF-0B SQL revenue views are retained as read-only service-role mirrors/fallbacks.
+
+Historical rule: platform margin changes affect future booking snapshots only. Existing booking snapshots are not silently rewritten.
