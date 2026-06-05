@@ -84,13 +84,13 @@ export async function POST(
   }
 
   // 2. Cancel the class
+  // Only update columns that exist on the base classes table — reason/notes go into
+  // class_cancellation_records (created below), NOT into the classes row itself.
   const { error: cancelClassError } = await supabase
     .from("classes")
     .update({
       status: "cancelled",
       archived_at: new Date().toISOString(),
-      ...(body.cancellationReason ? { cancellation_reason: body.cancellationReason } : {}),
-      ...(body.internalNote ? { cancellation_internal_note: body.internalNote } : {}),
     })
     .eq("id", classId);
 
@@ -199,10 +199,11 @@ export async function POST(
       booking_id: r.bookingId,
       class_id: classId,
       business_id: classRow.business_id,
+      paid_amount: r.paidAmount,
       refund_amount: r.refundAmount,
       retained_amount: r.retainedAmount,
       refund_status: r.refundStatus,
-      cancelled_by: "owner",
+      refund_reason: `Owner cancelled class — ${refundMode}`,
       refund_mode: refundMode,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -237,15 +238,20 @@ export async function POST(
     .insert({
       class_id: classId,
       business_id: classRow.business_id,
-      cancelled_by: access.authUserId,
+      cancelled_by: "owner",                          // CHECK constraint: 'owner'|'admin'|'system_backfill'
+      cancelled_by_user_id: access.authUserId,
       cancellation_reason: body.cancellationReason ?? null,
       internal_note: body.internalNote ?? null,
       notify_customers: body.notifyCustomers ?? true,
       customer_refund_mode: refundMode,
       custom_refund_percent: body.customRefundPercent ?? null,
-      total_bookings_cancelled: allActive.length,
+      total_paid_amount: refundResults.reduce((s, r) => s + r.paidAmount, 0),
       total_refund_amount: refundResults.reduce((s, r) => s + r.refundAmount, 0),
+      retained_revenue: refundResults.reduce((s, r) => s + r.retainedAmount, 0),
+      cancellation_loss_total: 0,
+      cancelled_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .select("id")
     .maybeSingle();

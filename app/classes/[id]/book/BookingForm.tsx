@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Class } from "@/types";
 import { formatDate, formatTime } from "@/lib/utils";
@@ -16,6 +16,17 @@ interface Attendee {
   name: string;
   email: string;
   phone: string;
+}
+
+interface BookingFormField {
+  id: string;
+  field_key: string;
+  field_label: string;
+  field_type: string;
+  is_required?: boolean | null;
+  placeholder?: string | null;
+  help_text?: string | null;
+  options?: unknown;
 }
 
 const AGE_RANGES = ["Under 13", "13–17", "18–24", "25–34", "35–44", "45+", "Prefer not to say"];
@@ -161,6 +172,8 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   const [goals, setGoals] = useState<string[]>([]);
   const [healthNote, setHealthNote] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
+  const [customFields, setCustomFields] = useState<BookingFormField[]>([]);
+  const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({});
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -175,6 +188,19 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     process.env.NEXT_PUBLIC_PAYMENTS_ENABLED === "true";
   const isPaid = cls.price > 0 && (isDummyMode || isRazorpayMode);
   const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch(`/api/classes/${cls.id}/booking-form`).catch(() => null);
+      if (!response?.ok) return;
+      const data = await response.json().catch(() => ({}));
+      if (active) setCustomFields(Array.isArray(data.fields) ? data.fields : []);
+    });
+    return () => {
+      active = false;
+    };
+  }, [cls.id]);
 
   function updateAttendee(index: number, field: keyof Attendee, value: string) {
     setAttendees((prev) =>
@@ -206,6 +232,14 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         e[`${i}.email`] = "Enter a valid email address.";
       if (!a.phone.trim()) e[`${i}.phone`] = "Phone number is required.";
     });
+    customFields.forEach((field) => {
+      if (!field.is_required) return;
+      const value = customResponses[field.id];
+      const isEmptyArray = Array.isArray(value) && value.length === 0;
+      if (value === undefined || value === null || value === "" || value === false || isEmptyArray) {
+        e[`custom.${field.id}`] = `${field.field_label} is required.`;
+      }
+    });
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -213,6 +247,148 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   function toggleGoal(goal: string) {
     setGoals((prev) =>
       prev.includes(goal) ? prev.filter((g) => g !== goal) : [...prev, goal]
+    );
+  }
+
+  function fieldOptions(field: BookingFormField) {
+    if (Array.isArray(field.options)) return field.options.map(String);
+    if (field.options && typeof field.options === "object") {
+      const options = (field.options as { options?: unknown }).options;
+      if (Array.isArray(options)) return options.map(String);
+    }
+    return [];
+  }
+
+  function setCustomResponse(fieldId: string, value: unknown) {
+    setCustomResponses((prev) => ({ ...prev, [fieldId]: value }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[`custom.${fieldId}`];
+      return next;
+    });
+  }
+
+  function toggleCustomOption(fieldId: string, option: string) {
+    const current = customResponses[fieldId];
+    const values = Array.isArray(current) ? current.map(String) : [];
+    setCustomResponse(
+      fieldId,
+      values.includes(option) ? values.filter((value) => value !== option) : [...values, option]
+    );
+  }
+
+  function renderCustomField(field: BookingFormField) {
+    const value = customResponses[field.id];
+    const options = fieldOptions(field);
+    const error = errors[`custom.${field.id}`];
+    const label = (
+      <label className="mb-1.5 block text-sm font-semibold text-slate-700" htmlFor={`custom-${field.id}`}>
+        {field.field_label} {field.is_required && <span className="text-red-500">*</span>}
+      </label>
+    );
+    const inputClass = `w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
+      error ? "border-red-400" : "border-slate-200"
+    }`;
+
+    let control;
+    if (field.field_type === "long_text") {
+      control = (
+        <textarea
+          id={`custom-${field.id}`}
+          value={String(value ?? "")}
+          onChange={(event) => setCustomResponse(field.id, event.target.value)}
+          rows={3}
+          placeholder={field.placeholder ?? ""}
+          className={inputClass}
+        />
+      );
+    } else if (field.field_type === "dropdown") {
+      control = (
+        <select
+          id={`custom-${field.id}`}
+          value={String(value ?? "")}
+          onChange={(event) => setCustomResponse(field.id, event.target.value)}
+          className={inputClass}
+        >
+          <option value="">{field.placeholder ?? "Select"}</option>
+          {options.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      );
+    } else if (field.field_type === "radio") {
+      control = (
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setCustomResponse(field.id, option)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                value === option ? "border-teal-400 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-600"
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      );
+    } else if (field.field_type === "multi_select") {
+      const values = Array.isArray(value) ? value.map(String) : [];
+      control = (
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => toggleCustomOption(field.id, option)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                values.includes(option) ? "border-teal-400 bg-teal-50 text-teal-700" : "border-slate-200 text-slate-600"
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      );
+    } else if (field.field_type === "checkbox" || field.field_type === "consent") {
+      control = (
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 px-4 py-3">
+          <input
+            id={`custom-${field.id}`}
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(event) => setCustomResponse(field.id, event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600"
+          />
+          <span className="text-sm text-slate-700">{field.placeholder || field.help_text || field.field_label}</span>
+        </label>
+      );
+    } else {
+      const inputType = ["email", "phone", "number", "date"].includes(field.field_type)
+        ? field.field_type === "phone" ? "tel" : field.field_type
+        : "text";
+      control = (
+        <input
+          id={`custom-${field.id}`}
+          type={inputType}
+          value={String(value ?? "")}
+          onChange={(event) => setCustomResponse(field.id, event.target.value)}
+          placeholder={field.placeholder ?? ""}
+          className={inputClass}
+        />
+      );
+    }
+
+    return (
+      <div key={field.id}>
+        {field.field_type !== "checkbox" && field.field_type !== "consent" && label}
+        {control}
+        {field.help_text && field.field_type !== "checkbox" && field.field_type !== "consent" && (
+          <p className="mt-1 text-xs text-slate-400">{field.help_text}</p>
+        )}
+        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      </div>
     );
   }
 
@@ -244,6 +420,17 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
       goals: goals.length > 0 ? goals : null,
       healthNote: healthNote.trim() || null,
       marketingConsent,
+      formResponses: customFields
+        .map((field) => ({
+          fieldId: field.id,
+          fieldKey: field.field_key,
+          fieldLabel: field.field_label,
+          value: customResponses[field.id] ?? "",
+        }))
+        .filter((response) => {
+          if (Array.isArray(response.value)) return response.value.length > 0;
+          return response.value !== "" && response.value !== false;
+        }),
     };
   }
 
@@ -582,6 +769,20 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
           </div>
         )}
       </div>
+
+      {customFields.length > 0 && (
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <div>
+            <p className="text-sm font-bold text-slate-900">Booking details</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {businessName} asks for these details for this class.
+            </p>
+          </div>
+          <div className="mt-5 space-y-5 border-t border-slate-100 pt-5">
+            {customFields.map((field) => renderCustomField(field))}
+          </div>
+        </div>
+      )}
 
       {/* Booking summary */}
       <div className="rounded-2xl bg-slate-50 p-5 ring-1 ring-slate-100">

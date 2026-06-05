@@ -11,6 +11,8 @@ const ownerLinks = [
   { href: "/owner/dashboard", label: "Studio Home", icon: "✦" },
   { href: "/owner/classes", label: "Classes", icon: "🎟️" },
   { href: "/owner/bookings", label: "Bookings", icon: "☑" },
+  { href: "/owner/customers", label: "Customers", icon: "👥" },
+  { href: "/owner/booking-forms", label: "Forms", icon: "▤" },
   { href: "/owner/analytics", label: "Insights", icon: "◒" },
   { href: "/owner/venues", label: "Venues", icon: "⌂" },
   { href: "/owner/sponsors", label: "Sponsors", icon: "★" },

@@ -44,6 +44,7 @@ export const OWNER_ADMIN_PERMISSIONS = [
   "branding.manage",
   "notifications.view",
   "notifications.manage",
+  "attendance.manage",
 ] as const;
 
 export const MANAGEMENT_PERMISSIONS = [
@@ -60,6 +61,7 @@ export const MANAGEMENT_PERMISSIONS = [
   "sponsors.manage",
   "notifications.view",
   "notifications.manage",
+  "attendance.manage",
 ] as const;
 
 export const INSTRUCTOR_PERMISSIONS = [
@@ -69,6 +71,7 @@ export const INSTRUCTOR_PERMISSIONS = [
   "staff.earnings.view",
   "venues.view",
   "notifications.view",
+  "attendance.manage",
 ] as const;
 
 export function isAccessSchemaMissing(error: { code?: string; message?: string } | null | undefined) {

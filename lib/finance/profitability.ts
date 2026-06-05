@@ -110,10 +110,11 @@ export function calculateBookingSnapshotFinancials(
   input: BookingSnapshotCalculationInput
 ): BookingSnapshotCalculation {
   const paidAmount = money(numberValue(input.paidAmount));
+  const paidBookings = Math.max(1, Math.floor(numberValue(input.paidBookings ?? 1)));
   const platformFeeAtBooking = calculatePlatformFee(paidAmount, input.platformMarginPercent);
   const staffCommissionAtBooking = money(
     input.staffCommissions.reduce(
-      (sum, commission) => sum + calculateStaffCommission(commission, paidAmount, 1),
+      (sum, commission) => sum + calculateStaffCommission(commission, paidAmount, paidBookings),
       0
     )
   );

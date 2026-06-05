@@ -80,6 +80,7 @@ export interface ClassFinancialModel {
 export interface BookingSnapshotCalculationInput extends TaxInput {
   paidAmount: number;
   classPrice: number;
+  paidBookings?: number;
   platformMarginPercent: number;
   staffCommissions: StaffCommissionInput[];
 }

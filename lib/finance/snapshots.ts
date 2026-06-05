@@ -41,17 +41,20 @@ interface BookingFinanceRow {
   id: string;
   class_id: string;
   business_id?: string | null;
-  customer_id?: string | null;
   customer_email?: string | null;
   booking_status?: string | null;
   payment_status?: string | null;
   amount?: number | null;
+  total_amount?: number | null;
+  guest_count?: number | null;
 }
 
 interface PaymentRow {
   booking_id?: string | null;
+  class_id?: string | null;
   amount?: number | null;
   status?: string | null;
+  payment_status?: string | null;
 }
 
 interface ClassStaffFinanceRow {
@@ -124,6 +127,31 @@ async function maybeRows<T>(
   throw result.error;
 }
 
+async function maybeRowsWithFallback<T>(
+  supabase: SupabaseClient,
+  table: string,
+  select: string,
+  fallbackSelect: string,
+  filters?: Record<string, string>
+): Promise<T[]> {
+  let query = supabase.from(table).select(select);
+  for (const [column, value] of Object.entries(filters ?? {})) {
+    query = query.eq(column, value);
+  }
+  const result = await query;
+  if (!result.error) return (result.data ?? []) as T[];
+  if (!isSchemaMissing(result.error)) throw result.error;
+
+  let fallback = supabase.from(table).select(fallbackSelect);
+  for (const [column, value] of Object.entries(filters ?? {})) {
+    fallback = fallback.eq(column, value);
+  }
+  const fallbackResult = await fallback;
+  if (!fallbackResult.error) return (fallbackResult.data ?? []) as T[];
+  if (isSchemaMissing(fallbackResult.error)) return [];
+  throw fallbackResult.error;
+}
+
 async function maybeSingle<T>(
   supabase: SupabaseClient,
   table: string,
@@ -147,34 +175,55 @@ function staffCommissionInputs(rows: ClassStaffFinanceRow[]): StaffCommissionInp
   }));
 }
 
+const PAID_STATUSES = new Set(["paid", "completed", "success", "captured"]);
+
+function isPaidStatus(status?: string | null): boolean {
+  return PAID_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+function isConfirmedBookingStatus(status?: string | null): boolean {
+  return String(status ?? "confirmed").toLowerCase() === "confirmed";
+}
+
+function bookingSeatCount(booking: BookingFinanceRow): number {
+  return Math.max(1, Math.floor(numberValue(booking.guest_count ?? 1)));
+}
+
 /**
  * Resolve the effective paid amount for a booking.
- * bookings.amount is the primary source.
- * When it is 0 and payment_status = "paid", look in the payments table.
- * This handles the case where a payment was recorded separately but
- * bookings.amount was left at 0 (e.g. manual status updates or
- * payment-gateway callbacks that only updated payments, not bookings).
+ * Source priority:
+ * 1. bookings.amount
+ * 2. bookings.total_amount (for schemas that add it)
+ * 3. paid/success payment rows
+ * 4. class price as a finance-engine fallback for a paid seat
  */
 async function resolveBookingAmount(
   supabase: SupabaseClient,
-  booking: BookingFinanceRow
+  booking: BookingFinanceRow,
+  classPrice = 0
 ): Promise<number> {
   const stored = numberValue(booking.amount);
   if (stored > 0) return stored;
-  if (booking.payment_status !== "paid") return 0;
+  const storedTotal = numberValue(booking.total_amount);
+  if (storedTotal > 0) return storedTotal;
 
-  // Fetch from payments table — may not exist if nf0f migration not run, handled gracefully
-  const { data, error } = await supabase
-    .from("payments")
-    .select("amount, status")
-    .eq("booking_id", booking.id)
-    .in("status", ["paid", "success", "completed", "captured"])
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data) return 0;
-  const paymentAmount = numberValue(data.amount);
+  const paymentRows = await maybeRowsWithFallback<PaymentRow>(
+    supabase,
+    "payments",
+    "booking_id, amount, status, payment_status",
+    "booking_id, amount, status",
+    { booking_id: booking.id }
+  );
+  const paymentAmount = money(
+    paymentRows
+      .filter((payment) => isPaidStatus(payment.status) || isPaidStatus(payment.payment_status))
+      .reduce((sum, payment) => sum + numberValue(payment.amount), 0)
+  );
   if (paymentAmount > 0) return paymentAmount;
+
+  if (isPaidStatus(booking.payment_status) && numberValue(classPrice) > 0) {
+    return money(numberValue(classPrice));
+  }
   return 0;
 }
 
@@ -208,11 +257,12 @@ async function createOrUpdateBookingSnapshot(
 
   const platformMarginPercent = getPlatformMarginPercent(business);
   // Resolve effective amount: bookings.amount first, then payments table
-  const resolvedAmount = await resolveBookingAmount(supabase, booking);
+  const resolvedAmount = await resolveBookingAmount(supabase, booking, numberValue(classRow.price));
   const paidAmount = money(resolvedAmount);
   const financials = calculateBookingSnapshotFinancials({
     paidAmount,
     classPrice: numberValue(classRow.price),
+    paidBookings: bookingSeatCount(booking),
     platformMarginPercent,
     staffCommissions: staffCommissionInputs(classStaff),
     taxType: classRow.tax_type ?? "none",
@@ -227,7 +277,7 @@ async function createOrUpdateBookingSnapshot(
     booking_id: booking.id,
     class_id: classRow.id,
     business_id: classRow.business_id,
-    customer_id: booking.customer_id ?? null,
+    customer_id: null,
     currency,
     class_price_at_booking: money(numberValue(classRow.price)),
     paid_amount: paidAmount,
@@ -257,7 +307,7 @@ export async function ensureBookingFinancialSnapshot(
   const booking = await maybeSingle<BookingFinanceRow>(
     supabase,
     "bookings",
-    "id, class_id, business_id, customer_id, customer_email, booking_status, payment_status, amount",
+    "id, class_id, business_id, customer_email, booking_status, payment_status, amount, guest_count",
     "id",
     bookingId
   );
@@ -291,10 +341,11 @@ export async function recalculateClassFinancialSnapshot(
     classRow.business_id
   );
   const [bookings, classStaff, expenses, sponsors, payouts, existingSnapshots] = await Promise.all([
-    maybeRows<BookingFinanceRow>(
+    maybeRowsWithFallback<BookingFinanceRow>(
       supabase,
       "bookings",
-      "id, class_id, business_id, customer_id, booking_status, payment_status, amount",
+      "id, class_id, business_id, booking_status, payment_status, amount, total_amount, guest_count",
+      "id, class_id, business_id, booking_status, payment_status, amount, guest_count",
       { class_id: classId }
     ),
     maybeRows<ClassStaffFinanceRow>(
@@ -329,51 +380,58 @@ export async function recalculateClassFinancialSnapshot(
     ),
   ]);
 
-  const confirmedBookings = bookings.filter((booking) => booking.booking_status === "confirmed");
-  const paidBookings = confirmedBookings.filter((booking) => booking.payment_status === "paid");
+  const paymentRows = await maybeRowsWithFallback<PaymentRow>(
+    supabase,
+    "payments",
+    "booking_id, class_id, amount, status, payment_status",
+    "booking_id, class_id, amount, status",
+    { class_id: classId }
+  );
+  const paymentAmountById = new Map<string, number>();
+  for (const payment of paymentRows) {
+    if (!payment.booking_id) continue;
+    if (!isPaidStatus(payment.status) && !isPaidStatus(payment.payment_status)) continue;
+    paymentAmountById.set(
+      payment.booking_id,
+      money((paymentAmountById.get(payment.booking_id) ?? 0) + numberValue(payment.amount))
+    );
+  }
+
+  const confirmedBookings = bookings.filter((booking) => isConfirmedBookingStatus(booking.booking_status));
+  const paidBookings = confirmedBookings.filter(
+    (booking) => isPaidStatus(booking.payment_status) || paymentAmountById.has(booking.id)
+  );
+  const confirmedSeatCount = confirmedBookings.reduce((sum, booking) => sum + bookingSeatCount(booking), 0);
+  const paidSeatCount = paidBookings.reduce((sum, booking) => sum + bookingSeatCount(booking), 0);
   const snapshotByBooking = new Map(existingSnapshots.map((snapshot) => [snapshot.booking_id, snapshot]));
 
   for (const booking of paidBookings) {
-    if (!snapshotByBooking.has(booking.id)) {
+    const existing = snapshotByBooking.get(booking.id);
+    if (!existing || numberValue(existing.paid_amount) <= 0) {
       await createOrUpdateBookingSnapshot(supabase, booking, "backfilled");
     }
   }
 
-  const refreshedSnapshots = paidBookings.length === existingSnapshots.length
-    ? existingSnapshots
-      : await maybeRows<BookingSnapshotRow>(
-        supabase,
-        "booking_financial_snapshots",
-        "booking_id, paid_amount, platform_fee_at_booking, staff_commission_at_booking, tax_at_booking",
-        { class_id: classId }
-      );
+  const refreshedSnapshots = await maybeRows<BookingSnapshotRow>(
+    supabase,
+    "booking_financial_snapshots",
+    "booking_id, paid_amount, platform_fee_at_booking, staff_commission_at_booking, tax_at_booking",
+    { class_id: classId }
+  );
 
   const paidBookingIds = new Set(paidBookings.map((booking) => booking.id));
   const usableSnapshots = refreshedSnapshots.filter((snapshot) => paidBookingIds.has(snapshot.booking_id));
   const snapshotGross = money(usableSnapshots.reduce((sum, snapshot) => sum + numberValue(snapshot.paid_amount), 0));
 
-  // Fallback: sum booking.amount, but resolve from payments table for any zero-amount paid bookings
-  const zeroAmountPaidIds = paidBookings
-    .filter((b) => numberValue(b.amount) === 0)
-    .map((b) => b.id);
-  let paymentAmountById = new Map<string, number>();
-  if (zeroAmountPaidIds.length > 0) {
-    const { data: paymentRows } = await supabase
-      .from("payments")
-      .select("booking_id, amount, status")
-      .in("booking_id", zeroAmountPaidIds)
-      .in("status", ["paid", "success", "completed", "captured"]);
-    for (const p of paymentRows ?? []) {
-      if (p.booking_id) {
-        const prev = paymentAmountById.get(p.booking_id) ?? 0;
-        paymentAmountById.set(p.booking_id, money(prev + numberValue(p.amount)));
-      }
-    }
-  }
   const fallbackGross = money(
     paidBookings.reduce((sum, booking) => {
       const bookingAmt = numberValue(booking.amount);
-      const effectiveAmt = bookingAmt > 0 ? bookingAmt : (paymentAmountById.get(booking.id) ?? 0);
+      const bookingTotal = numberValue(booking.total_amount);
+      const effectiveAmt = bookingAmt > 0
+        ? bookingAmt
+        : bookingTotal > 0
+          ? bookingTotal
+          : paymentAmountById.get(booking.id) ?? numberValue(classRow.price);
       return sum + effectiveAmt;
     }, 0)
   );
@@ -408,8 +466,8 @@ export async function recalculateClassFinancialSnapshot(
   const model = calculateClassFinancialModel({
     price: numberValue(classRow.price),
     capacity: numberValue(classRow.capacity),
-    confirmedBookings: confirmedBookings.length,
-    paidBookings: paidBookings.length,
+    confirmedBookings: confirmedSeatCount,
+    paidBookings: paidSeatCount,
     grossRevenue,
     platformMarginPercent: getPlatformMarginPercent(business),
     staffCommissions: staffCommissionInputs(classStaff),
@@ -470,8 +528,8 @@ export async function recalculateClassFinancialSnapshot(
       country: business?.country ?? undefined,
     }),
     gross_revenue: grossRevenue,
-    confirmed_bookings: confirmedBookings.length,
-    paid_bookings: paidBookings.length,
+    confirmed_bookings: confirmedSeatCount,
+    paid_bookings: paidSeatCount,
     capacity: model.capacity,
     occupancy_percent: model.occupancyPercent,
     platform_fee: platformFee,
@@ -503,11 +561,6 @@ export async function recalculateClassFinancialSnapshot(
           - additionalExpenses
           - (bookingTaxAmount || model.taxAmount)
         ),
-    refunded_amount: refundedAmount,
-    retained_revenue: retainedRevenue,
-    cancellation_loss: cancellationLoss,
-    staff_cancellation_payable: staffCancellationPayable,
-    cancellation_status: cancellationStatus,
     profit_per_booking: model.paidBookings > 0
       ? money((grossRevenue + sponsorIncome - platformFee - (bookingStaffCommission || model.staffCommission) - model.staffFixedCost - model.venueCost - additionalExpenses - (bookingTaxAmount || model.taxAmount)) / model.paidBookings)
       : 0,
@@ -529,6 +582,20 @@ export async function recalculateClassFinancialSnapshot(
     throw upsertClass.error;
   }
 
+  // Secondary UPDATE for NF-0I cancellation columns — these were added in nf0i migration.
+  // Done separately so a missing column never silently kills the main snapshot upsert above.
+  await supabase
+    .from("class_financial_snapshots")
+    .update({
+      refunded_amount: refundedAmount,
+      retained_revenue: retainedRevenue,
+      cancellation_loss: cancellationLoss,
+      staff_cancellation_payable: staffCancellationPayable,
+      cancellation_status: cancellationStatus,
+    })
+    .eq("class_id", classId)
+    .then(() => {}, () => {});  // Ignore error if nf0i columns don't exist yet
+
   await supabase.from("staff_earning_snapshots").delete().eq("class_id", classId);
   const payoutByClassStaff = new Map<string, number>();
   const payoutByStaff = new Map<string, number>();
@@ -548,11 +615,12 @@ export async function recalculateClassFinancialSnapshot(
   const staffSnapshots = classStaff.map((assignment) => {
     const commissionType = normalizeCommissionType(assignment.commission_type);
     const commissionValue = numberValue(assignment.commission_value ?? assignment.commission_percent);
-    const earningAmount = calculateStaffCommission(
+    const commissionEarning = calculateStaffCommission(
       { commissionType, commissionValue },
       grossRevenue,
-      paidBookings.length
+      paidSeatCount
     );
+    const earningAmount = money(commissionEarning + numberValue(assignment.fixed_class_cost));
     const paidAmount = assignment.id
       ? payoutByClassStaff.get(assignment.id) ?? payoutByStaff.get(assignment.staff_id) ?? 0
       : payoutByStaff.get(assignment.staff_id) ?? 0;

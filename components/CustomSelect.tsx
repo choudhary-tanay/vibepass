@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useId } from "react";
+import { useState, useRef, useEffect, useId, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 // ─── Single Select ────────────────────────────────────────────────────────────
 
@@ -24,6 +25,96 @@ interface SelectProps {
   onCreate?: (label: string) => Promise<string | void> | string | void;
 }
 
+interface DropdownPosition {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+}
+
+function useDropdownPosition(
+  anchorRef: RefObject<HTMLDivElement | null>,
+  open: boolean
+) {
+  const [position, setPosition] = useState<DropdownPosition | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return undefined;
+    }
+
+    function updatePosition() {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const gap = 8;
+      const viewportPadding = 12;
+      const spaceBelow = window.innerHeight - rect.bottom - viewportPadding;
+      const spaceAbove = rect.top - viewportPadding;
+      const opensBelow = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(
+        180,
+        Math.min(320, opensBelow ? spaceBelow : spaceAbove)
+      );
+
+      setPosition({
+        top: opensBelow
+          ? rect.bottom + gap
+          : Math.max(viewportPadding, rect.top - maxHeight - gap),
+        left: Math.min(
+          Math.max(viewportPadding, rect.left),
+          window.innerWidth - rect.width - viewportPadding
+        ),
+        width: rect.width,
+        maxHeight,
+      });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [anchorRef, open]);
+
+  return position;
+}
+
+function PortalMenu({
+  anchorRef,
+  menuRef,
+  open,
+  children,
+}: {
+  anchorRef: RefObject<HTMLDivElement | null>;
+  menuRef: RefObject<HTMLDivElement | null>;
+  open: boolean;
+  children: ReactNode;
+}) {
+  const position = useDropdownPosition(anchorRef, open);
+  if (!open || !position) return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="fixed z-[95] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+      style={{
+        top: position.top,
+        left: position.left,
+        width: position.width,
+        maxHeight: position.maxHeight,
+        overflowY: "auto",
+      }}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 export function Select({
   options,
   value,
@@ -41,13 +132,16 @@ export function Select({
   const [newLabel, setNewLabel] = useState("");
   const [createError, setCreateError] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const id = useId();
 
   const selected = options.find((o) => o.value === value);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (ref.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -100,8 +194,7 @@ export function Select({
         </svg>
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+      <PortalMenu anchorRef={ref} menuRef={menuRef} open={open}>
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -187,8 +280,7 @@ export function Select({
               )}
             </div>
           )}
-        </div>
-      )}
+      </PortalMenu>
     </div>
   );
 }
@@ -216,10 +308,13 @@ export function MultiSelect({
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (ref.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -271,8 +366,7 @@ export function MultiSelect({
         </svg>
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-1.5 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+      <PortalMenu anchorRef={ref} menuRef={menuRef} open={open}>
           {options.map((opt) => {
             const checked = values.includes(opt.value);
             return (
@@ -310,8 +404,7 @@ export function MultiSelect({
               </button>
             </div>
           )}
-        </div>
-      )}
+      </PortalMenu>
     </div>
   );
 }

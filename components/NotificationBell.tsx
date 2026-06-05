@@ -19,7 +19,7 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   async function loadNotifications() {
-    const response = await fetch("/api/notifications").catch(() => null);
+    const response = await fetch("/api/notifications?unread=0&limit=10").catch(() => null);
     if (!response?.ok) return;
     const data = await response.json();
     setItems((data.notifications ?? []) as NotificationRow[]);
@@ -31,8 +31,12 @@ export function NotificationBell() {
     queueMicrotask(async () => {
       if (active) await loadNotifications();
     });
+    const interval = setInterval(() => {
+      if (active) void loadNotifications();
+    }, 30_000);
     return () => {
       active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -55,14 +59,27 @@ export function NotificationBell() {
   }
 
   return (
-    <div className="relative">
+    <div className="fixed right-4 top-4 z-[90] sm:right-5">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         aria-label="Notifications"
       >
-        <span className="text-base">!</span>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-5 w-5"
+          aria-hidden="true"
+        >
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
         {unreadCount > 0 && (
           <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -71,7 +88,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute left-0 z-50 mt-2 w-[20rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950 lg:left-auto lg:right-0">
+        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-[20rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-sm font-black text-slate-900 dark:text-white">Notifications</p>
             {unreadCount > 0 && (

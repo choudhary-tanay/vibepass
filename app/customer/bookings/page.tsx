@@ -13,6 +13,7 @@ const COLUMNS: ColDef[] = [
   { key: "booking", label: "Booking" },
   { key: "payment", label: "Payment" },
   { key: "amount", label: "Amount" },
+  { key: "refund", label: "Refund Status", defaultHidden: false },
   { key: "bookedOn", label: "Booked On", defaultHidden: true },
   { key: "actions", label: "Actions", fixed: true },
 ];
@@ -32,6 +33,28 @@ function PaymentBadge({ status }: { status: string }) {
       }`}
     >
       {status}
+    </span>
+  );
+}
+
+function RefundStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    refunded: "bg-slate-100 text-slate-600",
+    partially_refunded: "bg-amber-100 text-amber-700",
+    refund_required: "bg-yellow-100 text-yellow-700",
+  };
+  const labels: Record<string, string> = {
+    refunded: "Refunded",
+    partially_refunded: "Partial Refund",
+    refund_required: "Refund Pending",
+  };
+  return (
+    <span
+      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+        styles[status] ?? "bg-gray-100 text-gray-500"
+      }`}
+    >
+      {labels[status] ?? status}
     </span>
   );
 }
@@ -238,6 +261,7 @@ export default function CustomerBookingsPage() {
                     {vis.has("booking") && <Th>Booking</Th>}
                     {vis.has("payment") && <Th>Payment</Th>}
                     {vis.has("amount") && <Th>Amount</Th>}
+                    {vis.has("refund") && <Th>Refund Status</Th>}
                     {vis.has("bookedOn") && <Th>Booked On</Th>}
                     {vis.has("actions") && <Th>Actions</Th>}
                   </tr>
@@ -289,6 +313,17 @@ export default function CustomerBookingsPage() {
                         {vis.has("amount") && (
                           <Td className="text-gray-700 font-medium">
                             {b.amount === 0 ? "Free" : `₹${b.amount.toLocaleString("en-IN")}`}
+                          </Td>
+                        )}
+                        {vis.has("refund") && (
+                          <Td>
+                            {(b.paymentStatus === "refunded" ||
+                              b.paymentStatus === "partially_refunded" ||
+                              b.paymentStatus === "refund_required") ? (
+                              <RefundStatusBadge status={b.paymentStatus} />
+                            ) : (
+                              <span className="text-xs text-gray-300">—</span>
+                            )}
                           </Td>
                         )}
                         {vis.has("bookedOn") && (

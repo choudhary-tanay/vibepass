@@ -45,9 +45,9 @@ function InstructorStack({
   return (
     <div className="flex items-center gap-3">
       <div className="flex -space-x-3">
-        {visible.map((instructor) => (
+        {visible.map((instructor, index) => (
           <div
-            key={instructor.id}
+            key={`${instructor.id}-${index}`}
             className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border-2 border-white bg-gradient-to-br from-teal-400 to-indigo-500 text-sm font-black text-white shadow-lg dark:border-slate-950"
             title={instructor.name}
           >

@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/appStore";
 import { supabase } from "@/lib/supabaseClient";
 import { LocationInput } from "@/components/LocationInput";
 import { COUNTRY_CURRENCY, SUPPORTED_COUNTRIES } from "@/lib/currency";
+import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 
 const CATEGORIES = [
   "Yoga",
@@ -687,6 +688,15 @@ export default function OwnerSettingsPage() {
             </button>
           </div>
         </form>
+
+        {/* Change Password */}
+        <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
+          <h2 className="mb-1 text-base font-semibold text-gray-800">Change Password</h2>
+          <p className="mb-4 text-sm text-gray-500">
+            Update your account password. Choose a strong password of at least 8 characters.
+          </p>
+          <ChangePasswordForm />
+        </div>
       </div>
     </main>
   );

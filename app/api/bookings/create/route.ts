@@ -13,6 +13,32 @@ interface AttendeeInput {
   phone: string;
 }
 
+interface FormResponseInput {
+  fieldId: string;
+  fieldKey?: string;
+  fieldLabel?: string;
+  value: unknown;
+  attendeeIndex?: number;
+}
+
+function generateBookingRef() {
+  return "VP-" + Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  const trimmed = String(value ?? "").trim().toLowerCase();
+  return trimmed || null;
+}
+
+function normalizePhone(value: string | null | undefined) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || null;
+}
+
+function retentionStatus(totalBookings: number) {
+  return totalBookings > 1 ? "repeat" : "new";
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body) {
@@ -29,6 +55,7 @@ export async function POST(request: Request) {
     goals,
     healthNote,
     marketingConsent,
+    formResponses,
     // Dummy payment fields — only accepted when NEXT_PUBLIC_PAYMENTS_MODE=dummy
     isDummyPaid,
     amount: rawAmount,
@@ -42,6 +69,7 @@ export async function POST(request: Request) {
     goals?: string[];
     healthNote?: string;
     marketingConsent?: boolean;
+    formResponses?: FormResponseInput[];
     isDummyPaid?: boolean;
     amount?: number;
   };
@@ -88,45 +116,154 @@ export async function POST(request: Request) {
     );
   }
 
-  // Insert one booking row per attendee
-  const pricePerSeat = isPaidBooking && seatsNeeded > 0 ? money(totalAmount / seatsNeeded) : 0;
-
-  const bookingRows = attendees.map((attendee, i) => {
-    const isPrimary = i === 0;
-    return {
+  const primaryAttendee = attendees[0];
+  const { data: primaryBooking, error: bookingErr } = await supabase
+    .from("bookings")
+    .insert({
       class_id: classId,
       business_id: businessId,
-      customer_name: attendee.name,
-      customer_email: attendee.email,
-      customer_phone: attendee.phone,
+      customer_name: primaryAttendee.name,
+      customer_email: primaryAttendee.email,
+      customer_phone: primaryAttendee.phone,
       booking_status: "confirmed",
       payment_status: isPaidBooking ? "paid" : "not_required",
-      // Primary attendee absorbs rounding remainder so seat amounts sum to total
-      amount: isPaidBooking
-        ? (isPrimary ? money(totalAmount - pricePerSeat * (seatsNeeded - 1)) : pricePerSeat)
-        : 0,
-      age_range: isPrimary && ageRange ? ageRange : null,
-      gender: isPrimary && gender ? gender : null,
-      experience_level: isPrimary && experienceLevel ? experienceLevel : null,
-      goals: isPrimary && Array.isArray(goals) && goals.length > 0 ? goals : null,
-      health_note: isPrimary && healthNote ? healthNote : null,
-      marketing_consent: isPrimary ? (marketingConsent ?? false) : false,
-    };
-  });
+      booking_reference: generateBookingRef(),
+      guest_count: seatsNeeded,
+      booking_source: "online",
+      amount: isPaidBooking ? money(totalAmount) : 0,
+      age_range: ageRange || null,
+      gender: gender || null,
+      experience_level: experienceLevel || null,
+      goals: Array.isArray(goals) && goals.length > 0 ? goals : null,
+      health_note: healthNote || null,
+      marketing_consent: marketingConsent ?? false,
+    })
+    .select()
+    .single();
 
-  const { data: bookings, error: bookingErr } = await supabase
-    .from("bookings")
-    .insert(bookingRows)
-    .select();
-
-  if (bookingErr || !bookings || bookings.length === 0) {
+  if (bookingErr || !primaryBooking) {
     // Bookings failed after capacity was already incremented — roll back the count
     supabase.rpc("book_if_capacity", { p_class_id: classId, p_slots: -seatsNeeded }).then(() => {}, () => {});
-    console.error("Error creating free bookings:", bookingErr);
+    console.error("Error creating booking:", bookingErr);
     return Response.json({ error: "Failed to create booking records" }, { status: 500 });
   }
 
-  const primaryBooking = bookings[0];
+  // Create/update customer profiles and identity links for primary and guest attendees.
+  const customerProfileIds: Array<string | null> = [];
+  for (const [index, attendee] of attendees.entries()) {
+    const email = normalizeEmail(attendee.email);
+    const phone = normalizePhone(attendee.phone);
+    let profileRow: { id: string; total_bookings?: number | null } | null = null;
+
+    if (email) {
+      const { data } = await supabase
+        .from("customer_profiles")
+        .select("id, total_bookings")
+        .eq("business_id", businessId)
+        .eq("primary_email", email)
+        .limit(1)
+        .maybeSingle();
+      profileRow = data;
+    }
+    if (!profileRow && phone) {
+      const { data } = await supabase
+        .from("customer_profiles")
+        .select("id, total_bookings")
+        .eq("business_id", businessId)
+        .eq("primary_phone", phone)
+        .limit(1)
+        .maybeSingle();
+      profileRow = data;
+    }
+
+    if (!profileRow) {
+      const { data } = await supabase
+        .from("customer_profiles")
+        .insert({
+          business_id: businessId,
+          primary_name: attendee.name || "Guest",
+          primary_email: email,
+          primary_phone: phone,
+          age_group: index === 0 ? ageRange ?? null : null,
+          gender: index === 0 ? gender ?? null : null,
+          experience_level: index === 0 ? experienceLevel ?? null : null,
+          goals: index === 0 && Array.isArray(goals) && goals.length > 0 ? goals : null,
+          health_accessibility_note: index === 0 ? healthNote ?? null : null,
+          marketing_consent: index === 0 ? marketingConsent ?? false : false,
+          total_bookings: 1,
+          first_booking_at: new Date().toISOString(),
+          last_booking_at: new Date().toISOString(),
+          retention_status: "new",
+        })
+        .select("id, total_bookings")
+        .single();
+      profileRow = data ?? null;
+    } else {
+      const nextTotal = Number(profileRow.total_bookings ?? 0) + 1;
+      await supabase
+        .from("customer_profiles")
+        .update({
+          primary_name: attendee.name || undefined,
+          primary_email: email,
+          primary_phone: phone,
+          age_group: index === 0 ? ageRange ?? null : undefined,
+          gender: index === 0 ? gender ?? null : undefined,
+          experience_level: index === 0 ? experienceLevel ?? null : undefined,
+          goals: index === 0 && Array.isArray(goals) && goals.length > 0 ? goals : undefined,
+          health_accessibility_note: index === 0 ? healthNote ?? null : undefined,
+          marketing_consent: index === 0 ? marketingConsent ?? false : undefined,
+          total_bookings: nextTotal,
+          last_booking_at: new Date().toISOString(),
+          retention_status: retentionStatus(nextTotal),
+        })
+        .eq("id", profileRow.id);
+    }
+
+    if (profileRow?.id) {
+      if (email) {
+        await supabase.from("customer_identity_links").upsert({
+          customer_profile_id: profileRow.id,
+          business_id: businessId,
+          identity_type: "email",
+          identity_value: email,
+          normalized_value: email,
+          verified: index === 0,
+          source: "booking",
+        }, { onConflict: "business_id,identity_type,normalized_value" }).then(() => {}, () => {});
+      }
+      if (phone) {
+        await supabase.from("customer_identity_links").upsert({
+          customer_profile_id: profileRow.id,
+          business_id: businessId,
+          identity_type: "phone",
+          identity_value: phone,
+          normalized_value: phone,
+          verified: false,
+          source: "booking",
+        }, { onConflict: "business_id,identity_type,normalized_value" }).then(() => {}, () => {});
+      }
+    }
+    customerProfileIds.push(profileRow?.id ?? null);
+  }
+
+  // Create booking_attendees rows — one per person for the same booking.
+  // Fails silently if nf1d migration hasn't been run yet
+  const attendeeRows = attendees.map((attendee, i) => ({
+    booking_id: primaryBooking.id,
+    class_id: classId,
+    business_id: businessId,
+    customer_profile_id: customerProfileIds[i],
+    attendee_name: attendees[i]?.name ?? attendees[0].name,
+    attendee_email: attendees[i]?.email ?? null,
+    attendee_phone: attendees[i]?.phone ?? null,
+    attendee_type: i === 0 ? "primary" : "guest",
+    attendance_status: "pending",
+  }));
+  const { data: insertedAttendees } = await supabase
+    .from("booking_attendees")
+    .insert(attendeeRows)
+    .select("id")
+    .then((result) => result, () => ({ data: null }));
 
   const [{ data: clsDetails }, { data: bizDetails }] = await Promise.all([
     supabase
@@ -156,16 +293,57 @@ export async function POST(request: Request) {
       status: "paid",
     }).then(() => {}, () => {});
 
-    await Promise.all(
-      bookings.map((booking) =>
-        ensureBookingFinancialSnapshot(supabase, booking.id, { recalculateClass: false })
-          .catch((error) => console.error("Booking snapshot error:", error))
-      )
-    );
+    await ensureBookingFinancialSnapshot(supabase, primaryBooking.id, { recalculateClass: false })
+      .catch((error) => console.error("Booking snapshot error:", error));
+  }
+
+  if (Array.isArray(formResponses) && formResponses.length > 0) {
+    const responseRows = formResponses
+      .filter((response) => response.fieldId)
+      .map((response) => ({
+        booking_id: primaryBooking.id,
+        class_id: classId,
+        business_id: businessId,
+        attendee_id:
+          typeof response.attendeeIndex === "number"
+            ? insertedAttendees?.[response.attendeeIndex]?.id ?? null
+            : null,
+        field_key: response.fieldKey ?? response.fieldId,
+        field_label: response.fieldLabel ?? response.fieldKey ?? response.fieldId,
+        response_value:
+          typeof response.value === "string"
+            ? response.value
+            : JSON.stringify(response.value ?? ""),
+      }));
+    if (responseRows.length > 0) {
+      await supabase.from("booking_form_responses").insert(responseRows).then(() => {}, () => {});
+    }
   }
 
   await recalculateClassFinancialSnapshot(supabase, classId)
     .catch((error) => console.error("Class finance snapshot recalculation error:", error));
+
+  // Create in-app notification for business owner
+  if (bizDetails) {
+    const { data: ownerProfile } = await supabase
+      .from("businesses")
+      .select("owner_id")
+      .eq("id", businessId)
+      .maybeSingle();
+    if (ownerProfile?.owner_id) {
+      supabase.from("notifications").insert({
+        recipient_user_id: ownerProfile.owner_id,
+        business_id: businessId,
+        entity_type: "booking",
+        entity_id: primaryBooking.id,
+        notification_type: "new_booking",
+        title: "New booking",
+        message: `${attendees[0].name} booked ${clsDetails?.title ?? "a class"}${seatsNeeded > 1 ? ` (${seatsNeeded} seats)` : ""}`,
+        action_url: `/owner/bookings`,
+        priority: "normal",
+      }).then(() => {}, () => {});
+    }
+  }
 
   if (clsDetails && bizDetails) {
     sendBookingEmails({
@@ -185,5 +363,9 @@ export async function POST(request: Request) {
     }).catch((err) => console.error("Email send error:", err));
   }
 
-  return Response.json({ success: true, bookingId: primaryBooking.id });
+  return Response.json({
+    success: true,
+    bookingId: primaryBooking.id,
+    bookingReference: primaryBooking.booking_reference ?? null,
+  });
 }

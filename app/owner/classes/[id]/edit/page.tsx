@@ -320,7 +320,7 @@ export default function EditClassPage() {
           .eq("class_id", id),
         supabase
           .from("class_staff")
-          .select("staff_id, is_primary, commission_type, commission_value, commission_percent")
+          .select("staff_id, is_primary, commission_type, commission_value, commission_percent, fixed_class_cost")
           .eq("class_id", id),
       ]);
 

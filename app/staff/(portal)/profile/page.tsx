@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { formatCurrency } from "@/lib/currency";
+import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -202,6 +203,12 @@ export default async function StaffProfilePage() {
               </p>
             </div>
           )}
+
+          {/* Change Password */}
+          <div className="rounded-3xl bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-sm font-black uppercase tracking-wider text-slate-400">Change Password</h2>
+            <ChangePasswordForm />
+          </div>
 
           <div className="text-center">
             <Link

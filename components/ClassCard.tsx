@@ -128,9 +128,9 @@ export function ClassCard({
         <div className="mt-4 rounded-[1.25rem] bg-white/72 p-3 shadow-sm ring-1 ring-slate-100 dark:bg-slate-950/50 dark:ring-slate-800">
           <div className="flex items-center gap-3">
             <div className="flex shrink-0 -space-x-3">
-              {visibleInstructors.map((instructor) => (
+              {visibleInstructors.map((instructor, index) => (
                 <div
-                  key={instructor.id}
+                  key={`${instructor.id}-${index}`}
                   className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border-2 border-white bg-gradient-to-br from-teal-400 to-indigo-500 text-sm font-black text-white shadow-lg dark:border-slate-950"
                   title={instructor.name}
                 >
