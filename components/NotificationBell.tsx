@@ -59,7 +59,7 @@ export function NotificationBell() {
   }
 
   return (
-    <div className="fixed right-4 top-4 z-[90] sm:right-5">
+    <div className="relative z-[90] shrink-0">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -88,7 +88,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-[20rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+        <div className="fixed right-4 top-16 z-[100] w-[calc(100vw-2rem)] max-w-[20rem] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950 sm:right-5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-sm font-black text-slate-900 dark:text-white">Notifications</p>
             {unreadCount > 0 && (

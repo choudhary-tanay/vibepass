@@ -39,6 +39,7 @@ export async function POST(req: Request) {
   if (!email || !businessId) {
     return NextResponse.json({ error: "Email and businessId are required." }, { status: 400 });
   }
+  const normalizedEmail = String(email).trim().toLowerCase();
 
   // Check the user owns this business (skip for admin)
   if (profile.role === "owner") {
@@ -51,13 +52,62 @@ export async function POST(req: Request) {
     if (!biz) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const nowIso = new Date().toISOString();
+  const [existingStaff, existingInvite, existingBusinessUser] = await Promise.all([
+    supabaseAdmin
+      .from("staff")
+      .select("id, status")
+      .eq("business_id", businessId)
+      .eq("email", normalizedEmail)
+      .limit(1),
+    supabaseAdmin
+      .from("staff_invites")
+      .select("id, accepted_at, expires_at")
+      .eq("business_id", businessId)
+      .eq("email", normalizedEmail)
+      .is("accepted_at", null)
+      .gt("expires_at", nowIso)
+      .limit(1),
+    supabaseAdmin
+      .from("business_users")
+      .select("id, status")
+      .eq("business_id", businessId)
+      .eq("email", normalizedEmail)
+      .in("status", ["active", "invited"])
+      .limit(1),
+  ]);
+
+  if (existingStaff.error && !isSchemaMissing(existingStaff.error)) {
+    return NextResponse.json({ error: existingStaff.error.message }, { status: 500 });
+  }
+  if (existingInvite.error && !isSchemaMissing(existingInvite.error)) {
+    return NextResponse.json({ error: existingInvite.error.message }, { status: 500 });
+  }
+  if (existingBusinessUser.error && !isSchemaMissing(existingBusinessUser.error)) {
+    return NextResponse.json({ error: existingBusinessUser.error.message }, { status: 500 });
+  }
+
+  if ((existingStaff.data ?? []).length > 0) {
+    return NextResponse.json(
+      { error: "A staff member with this email already exists for this business." },
+      { status: 409 }
+    );
+  }
+
+  if ((existingInvite.data ?? []).length > 0 || (existingBusinessUser.data ?? []).length > 0) {
+    return NextResponse.json(
+      { error: "An active invite already exists for this email." },
+      { status: 409 }
+    );
+  }
+
   // Create invite row (UUID token, 7-day expiry)
   const inviteRole = userGroup === "management" ? "management" : role ?? "instructor";
   const { data: invite, error: inviteError } = await supabaseAdmin
     .from("staff_invites")
     .insert({
       business_id: businessId,
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       role: inviteRole,
       invited_by: user.id,
     })
@@ -88,7 +138,6 @@ export async function POST(req: Request) {
   }
 
   if (defaultRole?.id) {
-    const normalizedEmail = email.trim().toLowerCase();
     const [{ error: businessUserError }, { error: businessInviteError }] = await Promise.all([
       supabaseAdmin.from("business_users").upsert(
         {

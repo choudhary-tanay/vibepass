@@ -56,6 +56,87 @@ function normalizeField(field: FormFieldInput, index: number, businessId: string
   };
 }
 
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const { searchParams } = new URL(request.url);
+  const businessId = searchParams.get("businessId") ?? "";
+  if (!id || !businessId) {
+    return Response.json({ error: "template id and businessId are required." }, { status: 400 });
+  }
+
+  const access = await requireBusinessPermission(businessId, "classes.edit");
+  if ("response" in access) return access.response;
+  const { supabase } = access;
+
+  const [{ data: template, error: templateError }, { data: fields, error: fieldsError }, { data: classesUsing, error: classesError }] =
+    await Promise.all([
+      supabase
+        .from("booking_form_templates")
+        .select("*")
+        .eq("id", id)
+        .eq("business_id", businessId)
+        .maybeSingle(),
+      supabase
+        .from("booking_form_fields")
+        .select("*")
+        .eq("template_id", id)
+        .eq("business_id", businessId)
+        .order("display_order", { ascending: true }),
+      supabase
+        .from("class_booking_forms")
+        .select("class_id, classes(id, title, status, date)")
+        .eq("template_id", id)
+        .eq("business_id", businessId),
+    ]);
+
+  const schemaError = templateError ?? fieldsError ?? classesError;
+  if (schemaError) {
+    if (isAccessSchemaMissing(schemaError)) {
+      return Response.json({ error: "Booking form tables are missing. Run nf1d SQL first." }, { status: 500 });
+    }
+    return Response.json({ error: schemaError.message }, { status: 500 });
+  }
+  if (!template) return Response.json({ error: "Template not found." }, { status: 404 });
+
+  const fieldKeys = (fields ?? []).map((field) => String(field.field_key)).filter(Boolean);
+  const responsesQuery = supabase
+    .from("booking_form_responses")
+    .select("id, booking_id, class_id, attendee_id, field_key, field_label, response_value, created_at, classes(title), bookings(booking_reference, customer_name, customer_email)")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(250);
+  const { data: responses, error: responsesError } =
+    fieldKeys.length > 0 ? await responsesQuery.in("field_key", fieldKeys) : { data: [], error: null };
+
+  if (responsesError && !isAccessSchemaMissing(responsesError)) {
+    return Response.json({ error: responsesError.message }, { status: 500 });
+  }
+
+  const aggregates = new Map<string, { fieldLabel: string; totalResponses: number; values: Record<string, number> }>();
+  for (const response of responses ?? []) {
+    const key = String(response.field_key ?? "unknown");
+    const current = aggregates.get(key) ?? {
+      fieldLabel: String(response.field_label ?? key),
+      totalResponses: 0,
+      values: {},
+    };
+    current.totalResponses += 1;
+    const value = String(response.response_value ?? "Blank");
+    current.values[value] = (current.values[value] ?? 0) + 1;
+    aggregates.set(key, current);
+  }
+
+  return Response.json({
+    template: { ...template, fields: fields ?? [] },
+    classesUsing: classesUsing ?? [],
+    responses: responses ?? [],
+    aggregates: Object.fromEntries(aggregates),
+  });
+}
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

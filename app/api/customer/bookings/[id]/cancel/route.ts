@@ -15,7 +15,13 @@ interface ClassCancellationPolicyRow {
   start_time: string | null;
   customer_cancellation_allowed: boolean | null;
   cancellation_cutoff_hours: number | null;
-  cancellation_cutoff_behavior: "no_refund" | "manual_review" | "apply_rules" | null;
+  cancellation_cutoff_behavior:
+    | "block"
+    | "no_refund"
+    | "partial_refund"
+    | "manual_review"
+    | "apply_rules"
+    | null;
   refund_fallback_owner_cancel: "full_refund" | "no_refund" | "manual_review" | null;
   refund_fallback_customer_cancel: "full_refund" | "no_refund" | "manual_review" | null;
 }
@@ -24,11 +30,12 @@ interface BookingRow {
   id: string;
   class_id: string;
   business_id: string | null;
-  customer_id: string | null;
+  customer_id?: string | null;
   customer_email: string | null;
   booking_status: string | null;
   payment_status: string | null;
   amount: number | null;
+  guest_count?: number | null;
 }
 
 interface RefundRuleRow {
@@ -48,6 +55,21 @@ function hoursUntilClass(date: string | null, startTime: string | null): number 
   const classDateTime = new Date(`${date}T${timeStr}`);
   const now = new Date();
   return (classDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+}
+
+function isSchemaMissing(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("relation")
+  );
+}
+
+function refundGatewayMode(): "dummy" | "razorpay" | "manual" {
+  return process.env.NEXT_PUBLIC_PAYMENTS_MODE === "razorpay" ? "razorpay" : "dummy";
 }
 
 export async function POST(
@@ -73,13 +95,25 @@ export async function POST(
   );
 
   // 2. Load the booking — verify customer_email matches auth email
-  const { data: booking, error: bookingError } = await supabase
+  let bookingResult = await supabase
     .from("bookings")
     .select(
-      "id, class_id, business_id, customer_id, customer_email, booking_status, payment_status, amount"
+      "id, class_id, business_id, customer_id, customer_email, booking_status, payment_status, amount, guest_count"
     )
     .eq("id", bookingId)
     .maybeSingle();
+
+  if (bookingResult.error && isSchemaMissing(bookingResult.error)) {
+    bookingResult = await supabase
+      .from("bookings")
+      .select(
+        "id, class_id, business_id, customer_email, booking_status, payment_status, amount, guest_count"
+      )
+      .eq("id", bookingId)
+      .maybeSingle();
+  }
+
+  const { data: booking, error: bookingError } = bookingResult;
 
   if (bookingError) {
     console.error("Customer cancel: booking lookup error:", bookingError);
@@ -135,7 +169,19 @@ export async function POST(
 
   let forcedRefundMode: "no_refund" | "manual_review" | "apply_rules" | null = null;
   if (cutoffHours !== null && hoursBeforeClass < cutoffHours) {
-    forcedRefundMode = cutoffBehavior ?? "no_refund";
+    if (cutoffBehavior === "block") {
+      return Response.json(
+        { error: "Cancellation is closed for this class." },
+        { status: 403 }
+      );
+    }
+    if (cutoffBehavior === "manual_review") {
+      forcedRefundMode = "manual_review";
+    } else if (cutoffBehavior === "partial_refund" || cutoffBehavior === "apply_rules") {
+      forcedRefundMode = "apply_rules";
+    } else {
+      forcedRefundMode = "no_refund";
+    }
   }
 
   // 7. Load refund rules for the class
@@ -210,8 +256,7 @@ export async function POST(
 
   // 10. Create booking_refunds row (ON CONFLICT DO UPDATE)
   if (isPaid) {
-    const { error: refundRowError } = await supabase.from("booking_refunds").upsert(
-      {
+    const refundRow = {
         booking_id: bookingId,
         class_id: typedBooking.class_id,
         business_id: typedBooking.business_id,
@@ -219,16 +264,27 @@ export async function POST(
         retained_amount: retainedAmount,
         refund_status: refundStatus,
         cancelled_by: "customer",
-        refund_mode: "apply_rules",
+        refund_mode: refundGatewayMode(),
+        refund_reason: "Customer cancelled booking",
         created_at: now,
         updated_at: now,
-      },
+      };
+    const { error: refundRowError } = await supabase.from("booking_refunds").upsert(
+      refundRow,
       { onConflict: "booking_id", ignoreDuplicates: false }
     );
 
     if (refundRowError) {
-      // Non-fatal
-      console.error("Customer cancel: booking_refunds upsert error:", refundRowError);
+      if (isSchemaMissing(refundRowError)) {
+        const { cancelled_by: _cancelledBy, ...fallbackRefundRow } = refundRow;
+        await supabase.from("booking_refunds").upsert(
+          fallbackRefundRow,
+          { onConflict: "booking_id", ignoreDuplicates: false }
+        );
+      } else {
+        // Non-fatal
+        console.error("Customer cancel: booking_refunds upsert error:", refundRowError);
+      }
     }
   }
 
@@ -240,10 +296,11 @@ export async function POST(
     .maybeSingle();
 
   const currentCount = numberValue((currentClass as { booked_count?: number } | null)?.booked_count);
+  const seatsToRelease = Math.max(1, Math.floor(numberValue(typedBooking.guest_count ?? 1)));
   if (currentCount > 0) {
     await supabase
       .from("classes")
-      .update({ booked_count: currentCount - 1 })
+      .update({ booked_count: Math.max(0, currentCount - seatsToRelease) })
       .eq("id", typedBooking.class_id);
   }
 

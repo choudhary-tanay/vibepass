@@ -757,12 +757,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function addStaff(data: Omit<Staff, "id">): Promise<boolean> {
+    const normalizedEmail = String(data.email ?? "").trim().toLowerCase();
+    if (normalizedEmail) {
+      const { data: existingRows, error: existingError } = await supabase
+        .from("staff")
+        .select("id")
+        .eq("business_id", data.businessId)
+        .eq("email", normalizedEmail)
+        .limit(1);
+      if (existingError && !isSchemaColumnMissing(existingError)) {
+        console.error("Error checking existing staff:", existingError);
+        return false;
+      }
+      if ((existingRows ?? []).length > 0) {
+        console.error("Staff email already exists for this business.");
+        return false;
+      }
+    }
+
     const { data: row, error } = await supabase
       .from("staff")
       .insert({
         business_id: data.businessId,
         name: data.name,
-        email: data.email || null,
+        email: normalizedEmail || null,
         phone: data.phone || null,
         role: data.role,
         user_group: data.userGroup ?? "instructor",
@@ -784,7 +802,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .insert({
           business_id: data.businessId,
           name: data.name,
-          email: data.email || null,
+          email: normalizedEmail || null,
           phone: data.phone || null,
           role: data.role,
           status: data.status,
@@ -838,9 +856,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       >
     >
   ): Promise<boolean> {
+    const current = staff.find((member) => member.id === staffId);
+    const normalizedEmail =
+      data.email !== undefined ? String(data.email ?? "").trim().toLowerCase() : undefined;
+    if (normalizedEmail && current?.businessId) {
+      const { data: existingRows, error: existingError } = await supabase
+        .from("staff")
+        .select("id")
+        .eq("business_id", current.businessId)
+        .eq("email", normalizedEmail)
+        .neq("id", staffId)
+        .limit(1);
+      if (existingError && !isSchemaColumnMissing(existingError)) {
+        console.error("Error checking existing staff:", existingError);
+        return false;
+      }
+      if ((existingRows ?? []).length > 0) {
+        console.error("Staff email already exists for this business.");
+        return false;
+      }
+    }
+
     const patch: Record<string, unknown> = {};
     if (data.name !== undefined) patch.name = data.name;
-    if (data.email !== undefined) patch.email = data.email || null;
+    if (data.email !== undefined) patch.email = normalizedEmail || null;
     if (data.phone !== undefined) patch.phone = data.phone || null;
     if (data.role !== undefined) patch.role = data.role;
     if (data.userGroup !== undefined) patch.user_group = data.userGroup;

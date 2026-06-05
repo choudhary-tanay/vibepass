@@ -87,6 +87,10 @@ export async function GET(request: Request) {
     const customers = (data ?? []).map((row: Record<string, unknown>) => ({
       id: String(row.id),
       businessId: String(row.business_id),
+      name: (row.primary_name as string | null) ?? "Guest customer",
+      email: (row.primary_email as string | null) ?? "",
+      phone: (row.primary_phone as string | null) ?? "",
+      lastBookingDate: (row.last_booking_at as string | null) ?? null,
       customerName: (row.primary_name as string | null) ?? null,
       customerEmail: (row.primary_email as string | null) ?? null,
       customerPhone: (row.primary_phone as string | null) ?? null,
@@ -171,6 +175,10 @@ export async function GET(request: Request) {
   let customers = [...customerMap.values()].map((c, idx) => ({
     id: `derived-${c.customerEmail}`,
     businessId,
+    name: c.customerName ?? "Guest customer",
+    email: c.customerEmail,
+    phone: c.customerPhone ?? "",
+    lastBookingDate: c.lastBookingAt,
     customerName: c.customerName,
     customerEmail: c.customerEmail,
     customerPhone: c.customerPhone,

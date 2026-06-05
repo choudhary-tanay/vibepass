@@ -124,8 +124,10 @@ function InstructorCard({ instructor, instructorName }: {
 
 export default function ClassDetailPage() {
   const params = useParams<{ id: string }>();
-  const { classes, businesses, staff: staffList, loading } = useAppStore();
+  const { classes, businesses, staff: staffList, loading, user } = useAppStore();
   const [publicSponsors, setPublicSponsors] = useState<PublicSponsor[]>([]);
+  const [favoriteSaved, setFavoriteSaved] = useState(false);
+  const [favoriteStatus, setFavoriteStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -142,6 +144,45 @@ export default function ClassDetailPage() {
       active = false;
     };
   }, [params.id]);
+
+  useEffect(() => {
+    if (!user) {
+      setFavoriteSaved(false);
+      return;
+    }
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch("/api/customer/favorites").catch(() => null);
+      if (!response?.ok) return;
+      const data = await response.json().catch(() => ({}));
+      if (!active) return;
+      setFavoriteSaved(
+        (data.favorites ?? []).some(
+          (favorite: { favorite_type?: string; entity_id?: string }) =>
+            favorite.favorite_type === "class" && favorite.entity_id === params.id
+        )
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [params.id, user]);
+
+  async function toggleFavorite() {
+    if (!user) {
+      setFavoriteStatus("Log in to save this class.");
+      return;
+    }
+    setFavoriteStatus(null);
+    const response = await fetch(`/api/customer/favorites/${params.id}`, {
+      method: favoriteSaved ? "DELETE" : "POST",
+    }).catch(() => null);
+    if (!response?.ok) {
+      setFavoriteStatus("Could not update favorites.");
+      return;
+    }
+    setFavoriteSaved((value) => !value);
+  }
 
   if (loading) {
     return (
@@ -502,6 +543,19 @@ export default function ClassDetailPage() {
                 >
                   Book Now
                 </Link>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void toggleFavorite()}
+                className="mt-3 w-full rounded-[1.25rem] border border-slate-200 bg-white py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                {favoriteSaved ? "Saved to Favorites" : "Save to Favorites"}
+              </button>
+              {favoriteStatus && (
+                <p className="mt-2 text-center text-xs font-semibold text-amber-600">
+                  {favoriteStatus}
+                </p>
               )}
 
               <div className="mt-5 grid gap-2 text-sm font-semibold text-slate-500">

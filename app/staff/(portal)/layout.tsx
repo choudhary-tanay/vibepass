@@ -28,7 +28,7 @@ export default async function StaffLayout({
   return (
     <div className="owner-shell" data-portal="staff">
       <StaffSidebar />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="owner-main">{children}</div>
     </div>
   );
 }

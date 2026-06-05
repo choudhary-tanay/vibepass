@@ -107,7 +107,6 @@ export function StaffSidebar() {
           Profile
         </p>
         {link("/staff/profile", "My Profile", "👤")}
-        {link("/staff/profile/edit", "Edit Profile", "✏️")}
       </nav>
 
       {/* Footer */}

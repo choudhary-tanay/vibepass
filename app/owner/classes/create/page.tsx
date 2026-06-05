@@ -102,6 +102,13 @@ interface VenueRow {
   notes?: string | null;
 }
 
+interface BookingFormTemplateRow {
+  id: string;
+  name: string;
+  description?: string | null;
+  fields?: Array<{ id: string; field_label: string; field_type: string; is_required?: boolean | null }>;
+}
+
 function newDraftExpense(): DraftExpense {
   return { id: crypto.randomUUID(), category: "other", name: "", amount: "0", note: "" };
 }
@@ -228,6 +235,9 @@ export default function CreateClassPage() {
   const currency = currentBusiness?.defaultCurrency ?? "INR";
   const [venues, setVenues] = useState<VenueRow[]>([]);
   const [venuesError, setVenuesError] = useState("");
+  const [bookingTemplates, setBookingTemplates] = useState<BookingFormTemplateRow[]>([]);
+  const [selectedBookingTemplateId, setSelectedBookingTemplateId] = useState("");
+  const [bookingTemplatesError, setBookingTemplatesError] = useState("");
 
   function toggleSection(n: number) {
     setOpenSections(prev => {
@@ -322,6 +332,27 @@ export default function CreateClassPage() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    if (!currentBusiness) return;
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch(`/api/owner/booking-form-templates?businessId=${currentBusiness.id}`).catch(() => null);
+      if (!response) return;
+      const data = await response.json().catch(() => ({}));
+      if (!active) return;
+      if (!response.ok) {
+        setBookingTemplatesError(data.error ?? "Booking forms could not be loaded.");
+        setBookingTemplates([]);
+        return;
+      }
+      setBookingTemplates(Array.isArray(data.templates) ? data.templates : []);
+      setBookingTemplatesError(data.warning ?? "");
+    });
+    return () => {
+      active = false;
+    };
   }, [currentBusiness?.id]);
 
   useEffect(() => {
@@ -577,6 +608,17 @@ export default function CreateClassPage() {
       }).catch(() => null);
     }
 
+    if (selectedBookingTemplateId) {
+      await fetch(`/api/owner/classes/${result.classId}/booking-form`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          templateId: selectedBookingTemplateId,
+        }),
+      }).catch(() => null);
+    }
+
     await fetch(`/api/finance/recalculate/class/${result.classId}`, { method: "POST" }).catch(() => null);
     setSubmitted(true);
   }
@@ -587,6 +629,7 @@ export default function CreateClassPage() {
     setFixedClassCosts({});
     setDraftExpenses([]);
     setDraftSponsors([]);
+    setSelectedBookingTemplateId("");
     setSaveError(null); setImagePreview(null); setImageFile(null); setImageUploadWarning(null);
     setCoverArtworkVariant("primary"); setCoverTextColor("#ffffff");
   }
@@ -1205,10 +1248,63 @@ export default function CreateClassPage() {
               )}
             </Section>
 
-            {/* 7. Policies */}
-            <Section num={7} title="Policies"
-              summary={form.cancellationPolicy ? form.cancellationPolicy.slice(0, 50) + "…" : "Cancellation and refund policy"}
+            {/* 7. Booking Form */}
+            <Section num={7} title="Booking Form"
+              summary={selectedBookingTemplateId ? bookingTemplates.find((template) => template.id === selectedBookingTemplateId)?.name ?? "Assigned form" : "Optional intake form"}
               open={openSections.has(7)} onToggle={() => toggleSection(7)}
+            >
+              <div className="space-y-4">
+                <Field label="Attach booking form" name="bookingFormTemplate" hint="Customers complete this after the platform contact details.">
+                  <select
+                    id="bookingFormTemplate"
+                    value={selectedBookingTemplateId}
+                    onChange={(event) => setSelectedBookingTemplateId(event.target.value)}
+                    className={inputClass(false)}
+                  >
+                    <option value="">No extra form</option>
+                    {bookingTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name} ({template.fields?.length ?? 0} fields)
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {bookingTemplatesError && (
+                  <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                    {bookingTemplatesError}
+                  </p>
+                )}
+                {selectedBookingTemplateId && (
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs font-black uppercase text-slate-400">Preview</p>
+                    <div className="mt-3 space-y-2">
+                      {(bookingTemplates.find((template) => template.id === selectedBookingTemplateId)?.fields ?? []).map((field) => (
+                        <div key={field.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm">
+                          <span className="font-bold text-slate-700">
+                            {field.field_label}
+                            {field.is_required && <span className="text-red-500"> *</span>}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-500">
+                            {field.field_type.replace("_", " ")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <Link
+                  href="/owner/booking-forms"
+                  className="inline-flex rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
+                >
+                  Create or edit forms
+                </Link>
+              </div>
+            </Section>
+
+            {/* 8. Policies */}
+            <Section num={8} title="Policies"
+              summary={form.cancellationPolicy ? form.cancellationPolicy.slice(0, 50) + "…" : "Cancellation and refund policy"}
+              open={openSections.has(8)} onToggle={() => toggleSection(8)}
             >
               <div className="space-y-4">
                 <Field label="Cancellation policy" name="cancellationPolicy">
@@ -1226,14 +1322,14 @@ export default function CreateClassPage() {
               </div>
             </Section>
 
-            {/* 8. Sponsorship */}
-            <Section num={8} title="Sponsorship"
+            {/* 9. Sponsorship */}
+            <Section num={9} title="Sponsorship"
               summary={
                 draftSponsors.length > 0
                   ? `${draftSponsors.length} sponsor${draftSponsors.length > 1 ? "s" : ""} · ${sym(currency)}${sponsorTotal.toLocaleString("en-IN")} income`
                   : "No sponsors yet"
               }
-              open={openSections.has(8)} onToggle={() => toggleSection(8)}
+              open={openSections.has(9)} onToggle={() => toggleSection(9)}
             >
               <div className="space-y-4">
                 <p className="text-sm text-gray-500">

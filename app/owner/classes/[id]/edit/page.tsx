@@ -142,6 +142,12 @@ interface VenueRow {
   notes?: string | null;
 }
 
+interface BookingFormTemplateRow {
+  id: string;
+  name: string;
+  fields?: Array<{ id: string; field_label: string; field_type: string; is_required?: boolean | null }>;
+}
+
 export default function EditClassPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -210,6 +216,9 @@ export default function EditClassPage() {
   const [fixedClassCosts, setFixedClassCosts] = useState<Record<string, string>>({});
   const [venues, setVenues] = useState<VenueRow[]>([]);
   const [venuesError, setVenuesError] = useState("");
+  const [bookingTemplates, setBookingTemplates] = useState<BookingFormTemplateRow[]>([]);
+  const [selectedBookingTemplateId, setSelectedBookingTemplateId] = useState("");
+  const [bookingTemplatesError, setBookingTemplatesError] = useState("");
 
   // Saved expenses for this class
   const [savedExpenses, setSavedExpenses] = useState<Array<{
@@ -442,6 +451,14 @@ export default function EditClassPage() {
         }
       } catch (_) {}
 
+      try {
+        const formRes = await fetch(`/api/classes/${id}/booking-form`);
+        if (formRes.ok) {
+          const formData = await formRes.json();
+          setSelectedBookingTemplateId(formData.template?.id ?? "");
+        }
+      } catch (_) {}
+
       setPageLoading(false);
     }
     load();
@@ -467,6 +484,27 @@ export default function EditClassPage() {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
+    if (!currentBusiness) return;
+    let active = true;
+    queueMicrotask(async () => {
+      const response = await fetch(`/api/owner/booking-form-templates?businessId=${currentBusiness.id}`).catch(() => null);
+      if (!response) return;
+      const data = await response.json().catch(() => ({}));
+      if (!active) return;
+      if (!response.ok) {
+        setBookingTemplatesError(data.error ?? "Booking forms could not be loaded.");
+        setBookingTemplates([]);
+        return;
+      }
+      setBookingTemplates(Array.isArray(data.templates) ? data.templates : []);
+      setBookingTemplatesError(data.warning ?? "");
+    });
+    return () => {
+      active = false;
+    };
   }, [currentBusiness?.id]);
 
   function validate(): boolean {
@@ -742,6 +780,17 @@ export default function EditClassPage() {
       // Reload saved sponsors
       const r = await fetch(`/api/owner/classes/${id}/sponsors`);
       if (r.ok) { const d = await r.json(); setSavedSponsors(d.sponsors ?? []); }
+    }
+
+    if (currentBusiness) {
+      await fetch(`/api/owner/classes/${id}/booking-form`, {
+        method: selectedBookingTemplateId ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: currentBusiness.id,
+          templateId: selectedBookingTemplateId || undefined,
+        }),
+      }).catch(() => null);
     }
 
     await fetch(`/api/finance/recalculate/class/${id}`, { method: "POST" }).catch(() => null);
@@ -1152,6 +1201,46 @@ export default function EditClassPage() {
                   </Field>
                 )}
               </div>
+
+              <SectionHeader title="Booking form" />
+              <Field label="Attach booking form" name="bookingFormTemplate" hint="Customers complete this after platform contact details.">
+                <select
+                  id="bookingFormTemplate"
+                  value={selectedBookingTemplateId}
+                  onChange={(e) => setSelectedBookingTemplateId(e.target.value)}
+                  className={inputClass()}
+                >
+                  <option value="">No extra form</option>
+                  {bookingTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} ({template.fields?.length ?? 0} fields)
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {bookingTemplatesError && (
+                <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                  {bookingTemplatesError}
+                </p>
+              )}
+              {selectedBookingTemplateId && (
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase text-slate-400">Preview</p>
+                  <div className="mt-3 space-y-2">
+                    {(bookingTemplates.find((template) => template.id === selectedBookingTemplateId)?.fields ?? []).map((field) => (
+                      <div key={field.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 text-sm">
+                        <span className="font-bold text-slate-700">
+                          {field.field_label}
+                          {field.is_required && <span className="text-red-500"> *</span>}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black text-slate-500">
+                          {field.field_type.replace("_", " ")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <SectionHeader title="Policies" />
 

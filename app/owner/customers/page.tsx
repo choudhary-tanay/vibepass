@@ -28,6 +28,13 @@ interface CustomersResponse {
   warning?: string;
 }
 
+interface CustomerDetail {
+  bookings?: Array<{ id: string; classTitle?: string; bookingStatus?: string; paymentStatus?: string; amount?: number }>;
+  attendees?: Array<{ id: string; attendee_name?: string; attendee_email?: string | null; attendee_type?: string; attendance_status?: string | null }>;
+  linkedIdentities?: Array<{ id: string; identity_type?: string; identity_value?: string; normalized_value?: string }>;
+  refundHistory?: Array<{ id: string; refund_status?: string; refund_amount?: number; retained_amount?: number }>;
+}
+
 // ---------------------------------------------------------------------------
 // Retention badge
 // ---------------------------------------------------------------------------
@@ -56,12 +63,38 @@ function RetentionBadge({ status }: { status: RetentionStatus }) {
 
 function CustomerSlideOver({
   customer,
+  businessId,
   onClose,
 }: {
   customer: Customer;
+  businessId: string;
   onClose: () => void;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [detail, setDetail] = useState<CustomerDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setDetail(null);
+    setDetailError(null);
+    fetch(`/api/owner/customers/${customer.id}?businessId=${businessId}`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (!response.ok) {
+          setDetailError(data.error ?? "Customer detail could not be loaded.");
+          return;
+        }
+        setDetail(data);
+      })
+      .catch(() => {
+        if (active) setDetailError("Customer detail could not be loaded.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [businessId, customer.id]);
 
   function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === overlayRef.current) onClose();
@@ -151,6 +184,99 @@ function CustomerSlideOver({
               </dd>
             </div>
           </dl>
+
+          <div className="mt-6 space-y-5">
+            {detailError && (
+              <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
+                {detailError}
+              </p>
+            )}
+            {!detail && !detailError && (
+              <p className="text-sm text-gray-400">Loading customer history...</p>
+            )}
+            {detail && (
+              <>
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
+                    Linked identities
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {(detail.linkedIdentities ?? []).length === 0 ? (
+                      <p className="text-sm text-gray-400">No linked identities yet.</p>
+                    ) : (
+                      (detail.linkedIdentities ?? []).map((identity) => (
+                        <div key={identity.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                          <span className="font-bold capitalize text-gray-700">{identity.identity_type}</span>
+                          <span className="ml-2 break-all text-gray-500">
+                            {identity.identity_value ?? identity.normalized_value}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
+                    Bookings
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {(detail.bookings ?? []).length === 0 ? (
+                      <p className="text-sm text-gray-400">No bookings found.</p>
+                    ) : (
+                      (detail.bookings ?? []).slice(0, 6).map((booking) => (
+                        <div key={booking.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                          <p className="font-bold text-gray-800">{booking.classTitle ?? "Class"}</p>
+                          <p className="text-xs text-gray-500">
+                            {booking.bookingStatus} · {booking.paymentStatus} · ₹{Number(booking.amount ?? 0).toLocaleString("en-IN")}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
+                    Attendance and guests
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {(detail.attendees ?? []).length === 0 ? (
+                      <p className="text-sm text-gray-400">No attendance records yet.</p>
+                    ) : (
+                      (detail.attendees ?? []).slice(0, 8).map((attendee) => (
+                        <div key={attendee.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                          <p className="font-bold text-gray-800">{attendee.attendee_name}</p>
+                          <p className="text-xs text-gray-500">
+                            {attendee.attendee_type} · {attendee.attendance_status ?? "pending"}
+                            {attendee.attendee_email ? ` · ${attendee.attendee_email}` : ""}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                {(detail.refundHistory ?? []).length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">
+                      Refunds
+                    </h3>
+                    <div className="mt-2 space-y-2">
+                      {(detail.refundHistory ?? []).map((refund) => (
+                        <div key={refund.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
+                          <p className="font-bold text-gray-800">{refund.refund_status}</p>
+                          <p className="text-xs text-gray-500">
+                            Refund ₹{Number(refund.refund_amount ?? 0).toLocaleString("en-IN")} · Retained ₹{Number(refund.retained_amount ?? 0).toLocaleString("en-IN")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -486,8 +612,12 @@ export default function OwnerCustomersPage() {
       </main>
 
       {/* Slide-over */}
-      {selected && (
-        <CustomerSlideOver customer={selected} onClose={() => setSelected(null)} />
+      {selected && currentBusiness && (
+        <CustomerSlideOver
+          customer={selected}
+          businessId={currentBusiness.id}
+          onClose={() => setSelected(null)}
+        />
       )}
     </>
   );

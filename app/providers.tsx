@@ -52,7 +52,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         {showOwnerShell ? (
           <div className="owner-shell">
             <OwnerSidebar />
-            <div className="min-w-0 flex-1">{children}</div>
+            <div className="owner-main">{children}</div>
           </div>
         ) : showStaffShell ? (
           <>{children}</>

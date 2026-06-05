@@ -1,4 +1,4 @@
-import { requireBusinessPermission } from "@/lib/accessControl";
+import { isAccessSchemaMissing, requireBusinessPermission } from "@/lib/accessControl";
 import { recalculateClassFinancialSnapshot, money, numberValue } from "@/lib/finance";
 
 interface CancellationCostInput {
@@ -35,6 +35,19 @@ interface CancelClassBody {
 
   // Step 4 - staff decisions
   staffDecisions?: StaffDecisionInput[];
+}
+
+interface ActiveBookingRow {
+  id: string;
+  booking_status: string | null;
+  payment_status: string | null;
+  amount: number | null;
+  customer_email: string | null;
+  customer_id?: string | null;
+}
+
+function refundGatewayMode(): "dummy" | "razorpay" | "manual" {
+  return process.env.NEXT_PUBLIC_PAYMENTS_MODE === "razorpay" ? "razorpay" : "dummy";
 }
 
 export async function POST(
@@ -100,13 +113,31 @@ export async function POST(
   }
 
   // 3. Find all paid bookings and their amounts
-  const { data: activeBookings } = await supabase
+  const activeBookingResult = await supabase
     .from("bookings")
     .select("id, booking_status, payment_status, amount, customer_email, customer_id")
     .eq("class_id", classId)
     .in("booking_status", ["confirmed", "pending"]);
 
-  const allActive = activeBookings ?? [];
+  let activeBookingData = activeBookingResult.data as ActiveBookingRow[] | null;
+  let activeBookingError = activeBookingResult.error;
+
+  if (activeBookingResult.error && isAccessSchemaMissing(activeBookingResult.error)) {
+    const fallbackResult = await supabase
+      .from("bookings")
+      .select("id, booking_status, payment_status, amount, customer_email")
+      .eq("class_id", classId)
+      .in("booking_status", ["confirmed", "pending"]);
+    activeBookingData = fallbackResult.data as ActiveBookingRow[] | null;
+    activeBookingError = fallbackResult.error;
+  }
+
+  if (activeBookingError) {
+    console.error("Owner cancel: active bookings lookup error:", activeBookingError);
+    return Response.json({ error: "Failed to load active bookings." }, { status: 500 });
+  }
+
+  const allActive = activeBookingData ?? [];
   const paidBookings = allActive.filter((b) => b.payment_status === "paid");
 
   // 4. Calculate refund amounts based on refundMode
@@ -204,7 +235,7 @@ export async function POST(
       retained_amount: r.retainedAmount,
       refund_status: r.refundStatus,
       refund_reason: `Owner cancelled class — ${refundMode}`,
-      refund_mode: refundMode,
+      refund_mode: refundGatewayMode(),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }));

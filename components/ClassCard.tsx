@@ -84,6 +84,11 @@ export function ClassCard({
           />
         )}
         <div className="absolute left-6 top-6 flex flex-wrap gap-2">
+          {(cls.featured || cls.browseFeatured) && (
+            <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-black uppercase text-indigo-700 shadow-sm backdrop-blur">
+              Featured
+            </span>
+          )}
           <span
             className={`rounded-full px-3 py-1 text-xs font-black shadow-sm backdrop-blur ${
               isFull

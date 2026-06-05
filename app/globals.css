@@ -431,18 +431,25 @@ tbody tr:hover {
 ───────────────────────────────────────── */
 .owner-shell {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--background);
 }
 
+.owner-main {
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
 .owner-sidebar {
-  position: sticky;
-  top: 0;
   z-index: 20;
   display: flex;
   height: 100vh;
   min-height: 100vh;
   width: 16rem;
+  flex-shrink: 0;
   flex-direction: column;
   border-right: 1px solid rgba(199, 210, 254, 0.8);
   background: rgba(238, 242, 255, 0.7);
@@ -509,6 +516,12 @@ tbody tr:hover {
 @media (max-width: 1024px) {
   .owner-shell {
     display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  .owner-main {
+    overflow: visible;
   }
 
   .owner-sidebar {
@@ -517,6 +530,7 @@ tbody tr:hover {
     min-height: auto;
     overflow-y: visible;
     position: sticky;
+    top: 0;
     width: 100%;
     border-right: 0;
     border-bottom: 1px solid rgba(199, 210, 254, 0.8);

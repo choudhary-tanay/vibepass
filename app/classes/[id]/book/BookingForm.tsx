@@ -78,6 +78,8 @@ function AttendeeCard({
   errors: Record<string, string>;
   isFirst: boolean;
 }) {
+  const emailRequired = isFirst;
+  const phoneRequired = isFirst;
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between">
@@ -115,13 +117,13 @@ function AttendeeCard({
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-          Email address <span className="text-red-500">*</span>
+          Email address {emailRequired ? <span className="text-red-500">*</span> : <span className="text-xs font-medium text-slate-400">(optional)</span>}
         </label>
         <input
           type="email"
           value={attendee.email}
           onChange={(e) => onChange("email", e.target.value)}
-          placeholder="email@example.com"
+          placeholder={emailRequired ? "email@example.com" : "Optional for guests"}
           className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
             errors[`${index}.email`] ? "border-red-400" : "border-slate-200"
           }`}
@@ -133,13 +135,13 @@ function AttendeeCard({
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-          Phone number <span className="text-red-500">*</span>
+          Phone number {phoneRequired ? <span className="text-red-500">*</span> : <span className="text-xs font-medium text-slate-400">(optional)</span>}
         </label>
         <input
           type="tel"
           value={attendee.phone}
           onChange={(e) => onChange("phone", e.target.value)}
-          placeholder="+91 98765 43210"
+          placeholder={phoneRequired ? "+91 98765 43210" : "Optional for guests"}
           className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
             errors[`${index}.phone`] ? "border-red-400" : "border-slate-200"
           }`}
@@ -217,6 +219,22 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     setAttendees((prev) => [...prev, { name: "", email: "", phone: "" }]);
   }
 
+  function setSeatCount(nextCount: number) {
+    const safeCount = Math.max(1, Math.min(seatsLeft || 1, nextCount));
+    setAttendees((prev) => {
+      if (safeCount === prev.length) return prev;
+      if (safeCount < prev.length) return prev.slice(0, safeCount);
+      return [
+        ...prev,
+        ...Array.from({ length: safeCount - prev.length }, () => ({
+          name: "",
+          email: "",
+          phone: "",
+        })),
+      ];
+    });
+  }
+
   function removeAttendee(index: number) {
     setAttendees((prev) => prev.filter((_, i) => i !== index));
   }
@@ -228,9 +246,12 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     }
     attendees.forEach((a, i) => {
       if (!a.name.trim()) e[`${i}.name`] = "Full name is required.";
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim()))
+      const email = a.email.trim();
+      if (i === 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         e[`${i}.email`] = "Enter a valid email address.";
-      if (!a.phone.trim()) e[`${i}.phone`] = "Phone number is required.";
+      if (i > 0 && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        e[`${i}.email`] = "Enter a valid email address or leave it blank.";
+      if (i === 0 && !a.phone.trim()) e[`${i}.phone`] = "Phone number is required.";
     });
     customFields.forEach((field) => {
       if (!field.is_required) return;
@@ -610,6 +631,40 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
           {errors.seats}
         </p>
       )}
+
+      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-slate-900">Seats</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Book for yourself or add guests. Guest email and phone can stay blank.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-2 py-2">
+            <button
+              type="button"
+              onClick={() => setSeatCount(attendees.length - 1)}
+              disabled={attendees.length <= 1}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg font-black text-slate-600 shadow-sm disabled:opacity-40"
+              aria-label="Remove seat"
+            >
+              -
+            </button>
+            <span className="min-w-10 text-center text-sm font-black text-slate-900">
+              {attendees.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSeatCount(attendees.length + 1)}
+              disabled={attendees.length >= seatsLeft}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-600 text-lg font-black text-white shadow-sm disabled:opacity-40"
+              aria-label="Add seat"
+            >
+              +
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Attendee cards */}
       {attendees.map((a, i) => (

@@ -106,6 +106,19 @@ export default function ClassesPage() {
       if (!locMatch) return false;
     }
     return true;
+  }).sort((a, b) => {
+    const aPinned = a.browseFeatured ? 0 : 1;
+    const bPinned = b.browseFeatured ? 0 : 1;
+    if (aPinned !== bPinned) return aPinned - bPinned;
+
+    if (aPinned === 0 && bPinned === 0) {
+      const positionDiff = (a.browsePosition ?? 999) - (b.browsePosition ?? 999);
+      if (positionDiff !== 0) return positionDiff;
+    }
+
+    const aSchedule = `${a.date ?? ""} ${a.startTime ?? ""}`;
+    const bSchedule = `${b.date ?? ""} ${b.startTime ?? ""}`;
+    return aSchedule.localeCompare(bSchedule);
   });
 
   const hasFilters = Boolean(

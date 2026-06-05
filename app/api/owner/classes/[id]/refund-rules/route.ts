@@ -46,7 +46,7 @@ export async function GET(
   const { data: rules, error } = await supabase
     .from("class_refund_rules")
     .select(
-      "id, class_id, business_id, applies_to, min_hours_before_class, max_hours_before_class, refund_type, refund_value, priority, is_active, created_at, updated_at"
+      "id, class_id, business_id, rule_name, applies_to, min_hours_before_class, max_hours_before_class, refund_type, refund_value, priority, is_active, created_at, updated_at"
     )
     .eq("class_id", classId)
     .order("priority", { ascending: false })
@@ -89,6 +89,7 @@ export async function POST(
     appliesTo,
     minHoursBeforeClass,
     maxHoursBeforeClass,
+    ruleName,
     refundType,
     refundValue,
     priority,
@@ -141,12 +142,17 @@ export async function POST(
 
   const parsedPriority = priority !== undefined ? Number(priority) : 0;
   const parsedIsActive = isActive !== undefined ? Boolean(isActive) : true;
+  const safeRuleName =
+    typeof ruleName === "string" && ruleName.trim()
+      ? ruleName.trim()
+      : `${appliesTo === "owner_cancel" ? "Owner" : appliesTo === "customer_cancel" ? "Customer" : "Default"} refund rule`;
 
   const { data: rule, error: insertError } = await supabase
     .from("class_refund_rules")
     .insert({
       class_id: classId,
       business_id: classResult.businessId,
+      rule_name: safeRuleName,
       applies_to: appliesTo,
       min_hours_before_class: parsedMinHours,
       max_hours_before_class: parsedMaxHours,
@@ -156,7 +162,7 @@ export async function POST(
       is_active: parsedIsActive,
     })
     .select(
-      "id, class_id, business_id, applies_to, min_hours_before_class, max_hours_before_class, refund_type, refund_value, priority, is_active, created_at, updated_at"
+      "id, class_id, business_id, rule_name, applies_to, min_hours_before_class, max_hours_before_class, refund_type, refund_value, priority, is_active, created_at, updated_at"
     )
     .single();
 

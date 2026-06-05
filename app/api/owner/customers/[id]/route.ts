@@ -144,6 +144,10 @@ export async function GET(
     const profile = {
       id: String(profileRow.id),
       businessId: String(profileRow.business_id),
+      name: (profileRow.primary_name as string | null) ?? "Guest customer",
+      email: customerEmail ?? "",
+      phone: customerPhone ?? "",
+      lastBookingDate: (profileRow.last_booking_at as string | null) ?? null,
       customerName: (profileRow.primary_name as string | null) ?? null,
       customerEmail,
       customerPhone,
@@ -237,6 +241,16 @@ export async function GET(
   const derivedProfile = {
     id,
     businessId,
+    name:
+      (lastBooking.customer_name as string | null) ??
+      (firstBooking.customer_name as string | null) ??
+      "Guest customer",
+    email: lookupEmail,
+    phone:
+      (lastBooking.customer_phone as string | null) ??
+      (firstBooking.customer_phone as string | null) ??
+      "",
+    lastBookingDate: lastBookingAt,
     customerName:
       (lastBooking.customer_name as string | null) ??
       (firstBooking.customer_name as string | null) ??

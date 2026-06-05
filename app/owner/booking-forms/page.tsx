@@ -29,7 +29,22 @@ type TemplateRow = {
   id: string;
   name: string;
   description?: string | null;
-  fields?: Array<{ id: string; field_label: string; field_type: string; is_required?: boolean | null }>;
+  fields?: Array<{
+    id: string;
+    field_key?: string;
+    field_label: string;
+    field_type: string;
+    is_required?: boolean | null;
+    placeholder?: string | null;
+    options?: unknown;
+  }>;
+};
+
+type TemplateResponses = {
+  template?: TemplateRow;
+  classesUsing?: Array<{ class_id: string; classes?: { title?: string; status?: string; date?: string } | { title?: string; status?: string; date?: string }[] | null }>;
+  responses?: Array<{ id: string; field_label?: string; response_value?: string; bookings?: { booking_reference?: string; customer_name?: string } | { booking_reference?: string; customer_name?: string }[] | null }>;
+  aggregates?: Record<string, { fieldLabel: string; totalResponses: number; values: Record<string, number> }>;
 };
 
 const FIELD_TYPES: { value: FieldType; label: string }[] = [
@@ -72,8 +87,11 @@ export default function OwnerBookingFormsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [fields, setFields] = useState<FieldDraft[]>([emptyField()]);
+  const [editingTemplateId, setEditingTemplateId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
+  const [responseTemplateId, setResponseTemplateId] = useState("");
+  const [templateResponses, setTemplateResponses] = useState<TemplateResponses | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +126,46 @@ export default function OwnerBookingFormsPage() {
     setFields((prev) => prev.map((field, i) => (i === index ? { ...field, ...patch } : field)));
   }
 
-  async function createTemplate() {
+  function resetBuilder() {
+    setEditingTemplateId("");
+    setName("");
+    setDescription("");
+    setFields([emptyField()]);
+  }
+
+  function draftFromTemplate(template: TemplateRow): FieldDraft[] {
+    const templateFields = template.fields ?? [];
+    if (templateFields.length === 0) return [emptyField()];
+    return templateFields.map((field) => ({
+      fieldLabel: field.field_label,
+      fieldType: (FIELD_TYPES.some((type) => type.value === field.field_type) ? field.field_type : "text") as FieldType,
+      isRequired: Boolean(field.is_required),
+      placeholder: field.placeholder ?? "",
+      optionsText: Array.isArray(field.options) ? field.options.map(String).join(", ") : "",
+    }));
+  }
+
+  function editTemplate(template: TemplateRow) {
+    setEditingTemplateId(template.id);
+    setName(template.name);
+    setDescription(template.description ?? "");
+    setFields(draftFromTemplate(template));
+    setStatus(`Editing ${template.name}.`);
+    setError(null);
+  }
+
+  function moveField(index: number, direction: -1 | 1) {
+    setFields((prev) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const copy = [...prev];
+      const [item] = copy.splice(index, 1);
+      copy.splice(nextIndex, 0, item);
+      return copy;
+    });
+  }
+
+  async function saveTemplate() {
     setStatus(null);
     setError(null);
     const cleanName = name.trim();
@@ -126,35 +183,104 @@ export default function OwnerBookingFormsPage() {
     }
 
     try {
+      const payload = {
+        businessId,
+        name: cleanName,
+        description: description.trim() || null,
+        fields: validFields.map((field, index) => ({
+          fieldKey: slugFieldKey(field.fieldLabel, index),
+          fieldLabel: field.fieldLabel,
+          fieldType: field.fieldType,
+          isRequired: field.isRequired,
+          placeholder: field.placeholder.trim() || null,
+          options: field.optionsText
+            ? field.optionsText.split(",").map((option) => option.trim()).filter(Boolean)
+            : null,
+          displayOrder: field.displayOrder,
+        })),
+      };
+      const response = await fetch(
+        editingTemplateId
+          ? `/api/owner/booking-form-templates/${editingTemplateId}`
+          : "/api/owner/booking-form-templates",
+        {
+          method: editingTemplateId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      resetBuilder();
+      setStatus(editingTemplateId ? "Template updated." : "Template created.");
+      await loadTemplates();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save template.");
+    }
+  }
+
+  async function duplicateTemplate(template: TemplateRow) {
+    setStatus(null);
+    setError(null);
+    try {
       const response = await fetch("/api/owner/booking-form-templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           businessId,
-          name: cleanName,
-          description: description.trim() || null,
-          fields: validFields.map((field, index) => ({
+          name: `${template.name} Copy`,
+          description: template.description ?? null,
+          fields: draftFromTemplate(template).map((field, index) => ({
             fieldKey: slugFieldKey(field.fieldLabel, index),
             fieldLabel: field.fieldLabel,
             fieldType: field.fieldType,
             isRequired: field.isRequired,
-            placeholder: field.placeholder.trim() || null,
-            options: field.optionsText
-              ? field.optionsText.split(",").map((option) => option.trim()).filter(Boolean)
-              : null,
-            displayOrder: field.displayOrder,
+            placeholder: field.placeholder || null,
+            options: field.optionsText ? field.optionsText.split(",").map((option) => option.trim()).filter(Boolean) : null,
+            displayOrder: index,
           })),
         }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
-      setName("");
-      setDescription("");
-      setFields([emptyField()]);
-      setStatus("Template created.");
+      setStatus("Template duplicated.");
       await loadTemplates();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create template.");
+      setError(err instanceof Error ? err.message : "Failed to duplicate template.");
+    }
+  }
+
+  async function archiveTemplate(template: TemplateRow) {
+    setStatus(null);
+    setError(null);
+    try {
+      const response = await fetch(`/api/owner/booking-form-templates/${template.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessId, isArchived: true }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      if (editingTemplateId === template.id) resetBuilder();
+      setStatus("Template archived.");
+      await loadTemplates();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to archive template.");
+    }
+  }
+
+  async function viewResponses(templateId: string) {
+    setResponseTemplateId(templateId);
+    setTemplateResponses(null);
+    setStatus(null);
+    setError(null);
+    try {
+      const response = await fetch(`/api/owner/booking-form-templates/${templateId}?businessId=${businessId}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+      setTemplateResponses(body);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load responses.");
     }
   }
 
@@ -213,7 +339,20 @@ export default function OwnerBookingFormsPage() {
 
         <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
           <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-slate-900">
-            <h2 className="text-lg font-black text-slate-950 dark:text-white">Create Template</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-black text-slate-950 dark:text-white">
+                {editingTemplateId ? "Edit Template" : "Create Template"}
+              </h2>
+              {editingTemplateId && (
+                <button
+                  type="button"
+                  onClick={resetBuilder}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  New Template
+                </button>
+              )}
+            </div>
             <div className="mt-5 grid gap-4">
               <input
                 value={name}
@@ -232,6 +371,29 @@ export default function OwnerBookingFormsPage() {
             <div className="mt-5 grid gap-3">
               {fields.map((field, index) => (
                 <div key={index} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <p className="text-xs font-black uppercase text-slate-400">
+                      Field {index + 1}
+                    </p>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveField(index, -1)}
+                        disabled={index === 0}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-500 disabled:opacity-40"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveField(index, 1)}
+                        disabled={index === fields.length - 1}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-black text-slate-500 disabled:opacity-40"
+                      >
+                        Down
+                      </button>
+                    </div>
+                  </div>
                   <div className="grid gap-3 md:grid-cols-[1fr_11rem]">
                     <input
                       value={field.fieldLabel}
@@ -294,10 +456,10 @@ export default function OwnerBookingFormsPage() {
               )}
               <button
                 type="button"
-                onClick={() => void createTemplate()}
+                onClick={() => void saveTemplate()}
                 className="rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-black text-white hover:bg-indigo-700"
               >
-                Save Template
+                {editingTemplateId ? "Update Template" : "Save Template"}
               </button>
             </div>
           </section>
@@ -350,10 +512,92 @@ export default function OwnerBookingFormsPage() {
                       <p className="mt-1 text-xs text-slate-400">
                         {template.fields?.length ?? 0} field{(template.fields?.length ?? 0) !== 1 ? "s" : ""}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => editTemplate(template)}
+                          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void duplicateTemplate(template)}
+                          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void viewResponses(template.id)}
+                          className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          Responses
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void archiveTemplate(template)}
+                          className="rounded-full border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
+                        >
+                          Archive
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
+            </section>
+
+            <section className="rounded-2xl bg-white p-6 shadow-sm dark:bg-slate-900">
+              <h2 className="text-lg font-black text-slate-950 dark:text-white">Responses</h2>
+              {!responseTemplateId ? (
+                <p className="mt-3 text-sm text-slate-400">Choose a template to view response analytics.</p>
+              ) : !templateResponses ? (
+                <p className="mt-3 text-sm text-slate-400">Loading responses...</p>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-sm font-black text-slate-900">
+                      {templateResponses.template?.name ?? "Template"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {(templateResponses.classesUsing ?? []).length} class{(templateResponses.classesUsing ?? []).length !== 1 ? "es" : ""} using this form · {(templateResponses.responses ?? []).length} recent response{(templateResponses.responses ?? []).length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {Object.entries(templateResponses.aggregates ?? {}).map(([fieldKey, aggregate]) => (
+                      <div key={fieldKey} className="rounded-xl border border-slate-100 p-3">
+                        <p className="text-sm font-black text-slate-900">{aggregate.fieldLabel}</p>
+                        <p className="text-xs text-slate-400">{aggregate.totalResponses} response{aggregate.totalResponses !== 1 ? "s" : ""}</p>
+                        <div className="mt-2 space-y-1">
+                          {Object.entries(aggregate.values).slice(0, 5).map(([value, count]) => (
+                            <div key={value} className="flex justify-between gap-3 text-xs text-slate-600">
+                              <span className="truncate">{value}</span>
+                              <span className="font-black">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    {(templateResponses.responses ?? []).slice(0, 5).map((response) => {
+                      const booking = Array.isArray(response.bookings) ? response.bookings[0] : response.bookings;
+                      return (
+                        <div key={response.id} className="rounded-xl bg-slate-50 px-3 py-2 text-xs">
+                          <p className="font-black text-slate-700">{response.field_label}</p>
+                          <p className="mt-0.5 text-slate-600">{response.response_value}</p>
+                          <p className="mt-1 text-slate-400">
+                            {booking?.booking_reference ?? "Booking"} · {booking?.customer_name ?? "Customer"}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </section>
           </aside>
         </div>

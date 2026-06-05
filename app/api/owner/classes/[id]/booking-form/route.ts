@@ -45,3 +45,34 @@ export async function POST(
 
   return Response.json({ ok: true });
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const body = await request.json().catch(() => ({}));
+  const businessId = String(body.businessId ?? "");
+
+  if (!id || !businessId) {
+    return Response.json({ error: "class id and businessId are required." }, { status: 400 });
+  }
+
+  const access = await requireBusinessPermission(businessId, "classes.edit");
+  if ("response" in access) return access.response;
+
+  const { error } = await access.supabase
+    .from("class_booking_forms")
+    .delete()
+    .eq("class_id", id)
+    .eq("business_id", businessId);
+
+  if (error) {
+    if (isAccessSchemaMissing(error)) {
+      return Response.json({ error: "Booking form tables are missing. Run nf1d SQL first." }, { status: 500 });
+    }
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json({ ok: true });
+}

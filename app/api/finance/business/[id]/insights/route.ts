@@ -17,7 +17,7 @@ export async function GET(
       .eq("business_id", id),
     access.supabase
       .from("bookings")
-      .select("id, class_id, customer_email, booking_status, payment_status, amount, created_at, age_range, gender, experience_level, goals, marketing_consent, health_note")
+      .select("id, class_id, customer_email, booking_status, payment_status, amount, guest_count, created_at, age_range, gender, experience_level, goals, marketing_consent, health_note")
       .eq("business_id", id),
     access.supabase
       .from("staff_earning_snapshots")
@@ -52,6 +52,10 @@ export async function GET(
   const waitlistBookings = bookings.filter((booking) => booking.booking_status === "waitlisted");
   const noShowBookings = bookings.filter((booking) => booking.booking_status === "no_show");
   const capacity = classes.reduce((sum, cls) => sum + Number(cls.capacity ?? 0), 0);
+  const seatCount = (booking: { guest_count?: number | null }) =>
+    Math.max(1, Math.floor(Number(booking.guest_count ?? 1)));
+  const confirmedSeatCount = confirmedBookings.reduce((sum, booking) => sum + seatCount(booking), 0);
+  const paidSeatCount = paidBookings.reduce((sum, booking) => sum + seatCount(booking), 0);
   const classSnapshotById = new Map(snapshots.map((snapshot) => [String(snapshot.class_id), snapshot]));
   const customerCounts = new Map<string, number>();
   const firstBookingAt = new Map<string, string>();
@@ -167,12 +171,12 @@ export async function GET(
       draftClasses: classes.filter((cls) => cls.status === "draft").length,
       completedClasses: classes.filter((cls) => cls.status === "completed").length,
       cancelledClasses: classes.filter((cls) => cls.status === "cancelled").length,
-      totalBookings: bookings.length,
-      paidBookings: paidBookings.length,
+      totalBookings: bookings.reduce((sum, booking) => sum + seatCount(booking), 0),
+      paidBookings: paidSeatCount,
       cancelledBookings: cancelledBookings.length,
       waitlistBookings: waitlistBookings.length,
       noShowBookings: noShowBookings.length,
-      occupancyPercent: percent(confirmedBookings.length, capacity),
+      occupancyPercent: percent(confirmedSeatCount, capacity),
       averageOccupancy: (() => {
         const withCap = snapshots.filter((s) => Number(s.capacity ?? 0) > 0);
         return withCap.length > 0
@@ -197,7 +201,9 @@ export async function GET(
       newCustomers: totalCustomers - repeatCustomers,
       repeatCustomers,
       repeatBookingRatePercent: percent(repeatCustomers, totalCustomers),
-      averageBookingsPerCustomer: totalCustomers > 0 ? money(bookings.length / totalCustomers) : 0,
+      averageBookingsPerCustomer: totalCustomers > 0
+        ? money(bookings.reduce((sum, booking) => sum + seatCount(booking), 0) / totalCustomers)
+        : 0,
       averageRevenuePerCustomer: totalCustomers > 0 ? money(totalRevenue / totalCustomers) : 0,
       ageGroupDistribution: distribution("age_range"),
       genderDistribution: distribution("gender"),
