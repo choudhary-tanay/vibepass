@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
-import { MetricRibbon, RingGauge, TrendLine } from "@/components/PortalCharts";
+import { MetricRibbon } from "@/components/PortalCharts";
 import { OnboardingChecklist } from "@/components/OnboardingChecklist";
 import { formatCurrency, getOperatingCurrency } from "@/lib/currency";
 
@@ -176,6 +176,8 @@ export default function OwnerDashboardPage() {
   const hasAnyClass = data.ownerClasses.length > 0;
   const hasPublishedClass = data.publishedClasses.length > 0;
   const hasStaff = data.activeStaff.length > 0;
+  const dashboardTrendPoints = data.trendPoints.length > 0 ? data.trendPoints : [2, 5, 4, 6, 8, 5];
+  const dashboardTrendMax = Math.max(...dashboardTrendPoints, 1);
 
   return (
     <main className="min-h-screen px-4 py-7 sm:px-6 sm:py-10">
@@ -256,49 +258,50 @@ export default function OwnerDashboardPage() {
             </div>
           </div>
 
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-1">
-            <TrendLine
-              points={data.trendPoints}
-              label="Booking momentum"
-            />
-            <div className="visual-panel rounded-[1.75rem] p-5">
-              <RingGauge value={data.avgOccupancy} label="average occupancy" tone="indigo" />
-              <p className="mt-4 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-400">
-                Occupancy is calculated across published classes, so this view helps you spot whether to add more capacity or promote under-filled sessions.
-              </p>
+          <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase text-emerald-600 dark:text-emerald-300">
+                  Earnings overview
+                </p>
+                <p className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
+                  {formatCurrency(revTotals?.totalGross ?? 0, bizCurrency)}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
+                  Gross revenue
+                </p>
+                <span className="mt-3 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">
+                  Live
+                </span>
+              </div>
+              <select className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 dark:border-slate-700 dark:bg-slate-950">
+                <option>This Week</option>
+              </select>
+            </div>
+            <div className="mt-6 flex h-28 items-end gap-3 rounded-2xl bg-white/55 px-4 pb-4 pt-5 dark:bg-slate-950/35">
+              {dashboardTrendPoints.map((point, index) => (
+                <div key={`${point}-${index}`} className="flex flex-1 flex-col items-center gap-2">
+                  <div className="flex h-20 w-full items-end rounded-full bg-indigo-50 dark:bg-slate-800">
+                    <div
+                      className="w-full rounded-full bg-gradient-to-t from-indigo-600 to-violet-400"
+                      style={{ height: `${Math.max(18, Math.round((point / dashboardTrendMax) * 100))}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400">
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][index] ?? "Sun"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <MetricRibbon label="Platform fees" value={formatCurrency(revTotals?.totalPlatform ?? 0, bizCurrency)} detail={`${currentBusiness.platformMarginPercent ?? currentBusiness.platformMargin ?? 0}%`} tone="indigo" />
+              <MetricRibbon label="Staff payouts" value={formatCurrency(revTotals?.totalStaffEarning ?? 0, bizCurrency)} detail="earned" tone="amber" />
+              <MetricRibbon label="Net revenue" value={formatCurrency(revTotals?.totalOwnerNet ?? 0, bizCurrency)} detail="owner share" tone="sky" />
             </div>
           </div>
         </section>
 
         <section className="mt-6 grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-          {revTotals && (
-            <div className="visual-panel rounded-[2rem] p-5 sm:p-6 xl:col-span-2">
-              <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase text-teal-600 dark:text-teal-300">
-                    Earnings overview
-                  </p>
-                  <h2 className="text-2xl font-black text-slate-950 dark:text-white">
-                    Gross revenue, fees, staff payouts, and owner net
-                  </h2>
-                </div>
-                <Link href="/owner/staff" className="text-sm font-black text-blue-600 hover:text-blue-700">
-                  Staff payables
-                </Link>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <MetricRibbon label="Platform fees" value={formatCurrency(revTotals.totalPlatform, bizCurrency)} detail={`${currentBusiness.platformMarginPercent ?? currentBusiness.platformMargin ?? 0}% margin`} tone="sky" />
-                <MetricRibbon label="Staff earned" value={formatCurrency(revTotals.totalStaffEarning, bizCurrency)} detail="commission liability" tone="indigo" />
-                <MetricRibbon label="Staff paid" value={formatCurrency(revTotals.totalStaffPaid, bizCurrency)} detail="recorded payouts" tone="emerald" />
-                <MetricRibbon label="Unpaid staff" value={formatCurrency(revTotals.totalStaffUnpaid, bizCurrency)} detail="remaining balance" tone={revTotals.totalStaffUnpaid > 0 ? "rose" : "slate"} />
-                {revTotals.totalSponsorship > 0 && (
-                  <MetricRibbon label="Sponsorship" value={formatCurrency(revTotals.totalSponsorship, bizCurrency)} detail="class sponsors income" tone="teal" />
-                )}
-                <MetricRibbon label="Paid bookings" value={revTotals.eligiblePaidBookingCount} detail="eligible seats" tone="teal" />
-              </div>
-            </div>
-          )}
-
           <div className="visual-panel rounded-[2rem] p-5 sm:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>

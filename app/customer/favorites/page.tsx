@@ -64,19 +64,30 @@ export default function CustomerFavoritesPage() {
 
   useEffect(() => {
     if (!user) return;
-    setFetchLoading(true);
-    setFetchError(null);
-    fetch("/api/customer/favorites")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setFetchError(data.error);
-        } else {
-          setFavorites(data.favorites ?? []);
-        }
-      })
-      .catch(() => setFetchError("Failed to load favorites."))
-      .finally(() => setFetchLoading(false));
+    let active = true;
+    queueMicrotask(() => {
+      setFetchLoading(true);
+      setFetchError(null);
+      fetch("/api/customer/favorites")
+        .then((res) => res.json())
+        .then((data) => {
+          if (!active) return;
+          if (data.error) {
+            setFetchError(data.error);
+          } else {
+            setFavorites(data.favorites ?? []);
+          }
+        })
+        .catch(() => {
+          if (active) setFetchError("Failed to load favorites.");
+        })
+        .finally(() => {
+          if (active) setFetchLoading(false);
+        });
+    });
+    return () => {
+      active = false;
+    };
   }, [user]);
 
   if (storeLoading) {

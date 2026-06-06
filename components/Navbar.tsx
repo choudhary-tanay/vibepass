@@ -85,12 +85,27 @@ export function Navbar() {
 
   return (
     <nav className="portal-nav px-4 py-3 sm:px-6">
-      <div className="portal-nav-inner mx-auto flex max-w-6xl items-center justify-between">
+      <div className="portal-nav-inner mx-auto flex max-w-[96rem] items-center justify-between gap-5">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-2">
           <VibePassLogo size="md" />
           {portalLabel && <span className="portal-pill">{portalLabel}</span>}
         </Link>
+
+        {!isOwnerPortal && !isAdminPortal && (
+          <div className="hidden min-w-0 flex-1 justify-center md:flex">
+            <label className="relative w-full max-w-xl">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                ⌕
+              </span>
+              <input
+                readOnly
+                placeholder="Search for classes, instructors, or sessions..."
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50/80 pl-11 pr-4 text-sm font-semibold text-slate-700 placeholder-slate-400 outline-none"
+              />
+            </label>
+          </div>
+        )}
 
         {/* Actions row */}
         <div className="portal-nav-actions flex items-center gap-1.5">

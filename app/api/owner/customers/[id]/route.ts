@@ -89,16 +89,17 @@ export async function GET(
     const classIds = [
       ...new Set((bookingsData ?? []).map((b) => String(b.class_id)).filter(Boolean)),
     ];
-    const classMap = new Map<string, { title: string; date: string | null }>();
+    const classMap = new Map<string, { title: string; date: string | null; currency: string }>();
     if (classIds.length > 0) {
       const { data: classesData } = await supabase
         .from("classes")
-        .select("id, title, date")
+        .select("id, title, date, currency")
         .in("id", classIds);
       for (const cls of classesData ?? []) {
         classMap.set(String(cls.id), {
           title: String(cls.title ?? "Class"),
           date: (cls.date as string | null) ?? null,
+          currency: String(cls.currency ?? "INR"),
         });
       }
     }
@@ -108,6 +109,7 @@ export async function GET(
       classId: String(b.class_id),
       classTitle: classMap.get(String(b.class_id))?.title ?? "Class",
       classDate: classMap.get(String(b.class_id))?.date ?? null,
+      currency: classMap.get(String(b.class_id))?.currency ?? "INR",
       customerName: (b.customer_name as string | null) ?? null,
       customerEmail: (b.customer_email as string | null) ?? null,
       customerPhone: (b.customer_phone as string | null) ?? null,
@@ -183,7 +185,12 @@ export async function GET(
       guestHistory: (attendees ?? []).filter((attendee) => attendee.attendee_type === "guest"),
       linkedIdentities: identities ?? [],
       formResponses: formResponsesResult.data ?? [],
-      refundHistory: (refunds ?? []).filter((refund) => bookingIdSet.has(refund.booking_id)),
+      refundHistory: (refunds ?? [])
+        .filter((refund) => bookingIdSet.has(refund.booking_id))
+        .map((refund) => ({
+          ...refund,
+          currency: bookings.find((booking) => booking.id === refund.booking_id)?.currency ?? "INR",
+        })),
       notes: [],
       source: "customer_profiles",
     });
@@ -227,16 +234,17 @@ export async function GET(
   const classIds = [
     ...new Set(allBookings.map((b) => String(b.class_id)).filter(Boolean)),
   ];
-  const classMap = new Map<string, { title: string; date: string | null }>();
+  const classMap = new Map<string, { title: string; date: string | null; currency: string }>();
   if (classIds.length > 0) {
     const { data: classesData } = await supabase
       .from("classes")
-      .select("id, title, date")
+      .select("id, title, date, currency")
       .in("id", classIds);
     for (const cls of classesData ?? []) {
       classMap.set(String(cls.id), {
         title: String(cls.title ?? "Class"),
         date: (cls.date as string | null) ?? null,
+        currency: String(cls.currency ?? "INR"),
       });
     }
   }
@@ -281,6 +289,7 @@ export async function GET(
     classId: String(b.class_id),
     classTitle: classMap.get(String(b.class_id))?.title ?? "Class",
     classDate: classMap.get(String(b.class_id))?.date ?? null,
+    currency: classMap.get(String(b.class_id))?.currency ?? "INR",
     customerName: (b.customer_name as string | null) ?? null,
     customerEmail: (b.customer_email as string | null) ?? null,
     customerPhone: (b.customer_phone as string | null) ?? null,

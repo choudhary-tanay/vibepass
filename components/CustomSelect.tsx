@@ -40,7 +40,7 @@ function useDropdownPosition(
 
   useEffect(() => {
     if (!open) {
-      setPosition(null);
+      queueMicrotask(() => setPosition(null));
       return undefined;
     }
 

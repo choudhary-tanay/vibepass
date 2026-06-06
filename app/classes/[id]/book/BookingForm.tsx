@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Class } from "@/types";
+import { formatCurrency } from "@/lib/currency";
 import { formatDate, formatTime } from "@/lib/utils";
 import { useAppStore } from "@/lib/appStore";
 
@@ -29,9 +30,9 @@ interface BookingFormField {
   options?: unknown;
 }
 
-const AGE_RANGES = ["Under 13", "13–17", "18–24", "25–34", "35–44", "45+", "Prefer not to say"];
+const AGE_RANGES = ["10-15", "15-25", "25-35", "35-45", "45+"];
 const GENDERS = ["Female", "Male", "Non-binary", "Prefer not to say"];
-const EXPERIENCE_LEVELS = ["First time", "Beginner", "Intermediate", "Advanced"];
+const EXPERIENCE_LEVELS = ["Beginner", "Intermediate", "Advanced"];
 const GOALS_OPTIONS = [
   "Strength",
   "Flexibility",
@@ -81,9 +82,9 @@ function AttendeeCard({
   const emailRequired = isFirst;
   const phoneRequired = isFirst;
   return (
-    <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-900">
+        <h3 className="text-sm font-black text-slate-900">
           {isFirst ? "Your details" : `Attendee ${index + 1}`}
         </h3>
         {onRemove && (
@@ -105,8 +106,8 @@ function AttendeeCard({
           type="text"
           value={attendee.name}
           onChange={(e) => onChange("name", e.target.value)}
-          placeholder="Full name"
-          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
+          placeholder="Enter your full name"
+          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-violet-200 ${
             errors[`${index}.name`] ? "border-red-400" : "border-slate-200"
           }`}
         />
@@ -123,8 +124,8 @@ function AttendeeCard({
           type="email"
           value={attendee.email}
           onChange={(e) => onChange("email", e.target.value)}
-          placeholder={emailRequired ? "email@example.com" : "Optional for guests"}
-          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
+          placeholder={emailRequired ? "Enter your email" : "Optional for guests"}
+          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-violet-200 ${
             errors[`${index}.email`] ? "border-red-400" : "border-slate-200"
           }`}
         />
@@ -142,7 +143,7 @@ function AttendeeCard({
           value={attendee.phone}
           onChange={(e) => onChange("phone", e.target.value)}
           placeholder={phoneRequired ? "+91 98765 43210" : "Optional for guests"}
-          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-300 ${
+          className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-violet-200 ${
             errors[`${index}.phone`] ? "border-red-400" : "border-slate-200"
           }`}
         />
@@ -190,6 +191,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     process.env.NEXT_PUBLIC_PAYMENTS_ENABLED === "true";
   const isPaid = cls.price > 0 && (isDummyMode || isRazorpayMode);
   const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
+  const currency = cls.currency ?? "INR";
 
   useEffect(() => {
     let active = true;
@@ -519,6 +521,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         classId: cls.id,
         businessId,
         amount: totalAmount,
+        seatCount: attendees.length,
         customerName: attendees[0].name.trim(),
         customerEmail: attendees[0].email.trim(),
         customerPhone: attendees[0].phone.trim(),
@@ -612,6 +615,8 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   }
 
   const totalPrice = cls.price * attendees.length;
+  const seatPriceLabel = cls.price === 0 ? "Free" : formatCurrency(cls.price, currency);
+  const totalPriceLabel = totalPrice === 0 ? "Free" : formatCurrency(totalPrice, currency);
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
@@ -632,10 +637,10 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         </p>
       )}
 
-      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+      <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-bold text-slate-900">Seats</p>
+            <p className="text-sm font-black text-slate-900">Seats</p>
             <p className="mt-0.5 text-xs text-slate-500">
               Book for yourself or add guests. Guest email and phone can stay blank.
             </p>
@@ -657,7 +662,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
               type="button"
               onClick={() => setSeatCount(attendees.length + 1)}
               disabled={attendees.length >= seatsLeft}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-600 text-lg font-black text-white shadow-sm disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-600 text-lg font-black text-white shadow-sm disabled:opacity-40"
               aria-label="Add seat"
             >
               +
@@ -695,7 +700,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
       )}
 
       {/* Optional insights (primary attendee only) */}
-      <div className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <button
           type="button"
           onClick={() => setShowInsights(!showInsights)}
@@ -715,26 +720,6 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         {showInsights && (
           <div className="mt-5 space-y-5 border-t border-slate-100 pt-5">
             <div>
-              <p className="mb-2 text-sm font-semibold text-slate-700">Age range</p>
-              <div className="flex flex-wrap gap-2">
-                {AGE_RANGES.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setAgeRange(ageRange === r ? "" : r)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      ageRange === r
-                        ? "border-teal-400 bg-teal-50 text-teal-700"
-                        : "border-slate-200 text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
               <p className="mb-2 text-sm font-semibold text-slate-700">Gender</p>
               <div className="flex flex-wrap gap-2">
                 {GENDERS.map((g) => (
@@ -749,26 +734,6 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
                     }`}
                   >
                     {g}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-2 text-sm font-semibold text-slate-700">Experience level</p>
-              <div className="flex flex-wrap gap-2">
-                {EXPERIENCE_LEVELS.map((l) => (
-                  <button
-                    key={l}
-                    type="button"
-                    onClick={() => setExperienceLevel(experienceLevel === l ? "" : l)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      experienceLevel === l
-                        ? "border-teal-400 bg-teal-50 text-teal-700"
-                        : "border-slate-200 text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    {l}
                   </button>
                 ))}
               </div>
@@ -825,8 +790,57 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         )}
       </div>
 
+      <div className="rounded-xl bg-white">
+        <div>
+          <p className="text-sm font-black text-slate-900">Booking details</p>
+          <p className="mt-0.5 text-xs font-semibold text-slate-500">
+            Tell us a bit more about the participant.
+          </p>
+        </div>
+        <div className="mt-4 space-y-4">
+          <div>
+            <p className="mb-2 text-sm font-semibold text-slate-700">Skill level</p>
+            <div className="flex flex-wrap gap-2">
+              {EXPERIENCE_LEVELS.map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => setExperienceLevel(experienceLevel === level ? "" : level)}
+                  className={`rounded-xl border px-4 py-2 text-xs font-black ${
+                    experienceLevel === level
+                      ? "border-violet-500 bg-violet-50 text-violet-700"
+                      : "border-slate-200 text-slate-700 hover:border-violet-200"
+                  }`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-semibold text-slate-700">Age</p>
+            <div className="flex flex-wrap gap-2">
+              {AGE_RANGES.map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setAgeRange(ageRange === range ? "" : range)}
+                  className={`rounded-xl border px-4 py-2 text-xs font-black ${
+                    ageRange === range
+                      ? "border-violet-500 bg-violet-50 text-violet-700"
+                      : "border-slate-200 text-slate-700 hover:border-violet-200"
+                  }`}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {customFields.length > 0 && (
-        <div className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
           <div>
             <p className="text-sm font-bold text-slate-900">Booking details</p>
             <p className="mt-0.5 text-xs text-slate-500">
@@ -840,20 +854,17 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
       )}
 
       {/* Booking summary */}
-      <div className="rounded-2xl bg-slate-50 p-5 ring-1 ring-slate-100">
-        <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+      <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-100">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+        <p className="text-xs font-black text-slate-500">
           Booking summary
         </p>
-        <p className="mt-2 text-base font-bold text-slate-900">{cls.title}</p>
-        <p className="text-sm text-slate-600">{businessName}</p>
-        <div className="mt-3 space-y-1 text-sm text-slate-600">
-          <p>
-            {formatDate(cls.date)} · {formatTime(cls.startTime)} –{" "}
-            {formatTime(cls.endTime)}
-          </p>
-          <p>{cls.location}</p>
-          <p>
-            {seatsLeft} seat{seatsLeft !== 1 ? "s" : ""} left
+        <p className="mt-2 truncate text-sm font-bold text-slate-900">{cls.title}</p>
+        <p className="truncate text-sm text-slate-600">{businessName} · {attendees.length} Seat{attendees.length !== 1 ? "s" : ""}</p>
+          </div>
+          <p className="shrink-0 text-right text-xs font-semibold text-slate-500">
+            {formatDate(cls.date)} · {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
           </p>
         </div>
 
@@ -862,13 +873,13 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
             {attendees.length > 1 && (
               <p className="text-xs text-slate-500">
                 {attendees.length} attendees ×{" "}
-                {cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}
+                {seatPriceLabel}
               </p>
             )}
             <p className="text-2xl font-black text-slate-900">
               {cls.price === 0
                 ? "Free"
-                : `₹${totalPrice.toLocaleString("en-IN")}`}
+                : totalPriceLabel}
             </p>
           </div>
           {attendees.length > 1 && (
@@ -888,12 +899,12 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
       <button
         type="submit"
         disabled={submitting || seatsLeft === 0}
-        className="w-full rounded-full bg-teal-600 py-4 text-base font-bold text-white transition hover:bg-teal-700 disabled:opacity-60"
+        className="w-full rounded-xl bg-violet-600 py-4 text-base font-black text-white shadow-lg shadow-violet-500/20 transition hover:bg-violet-700 disabled:opacity-60"
       >
         {submitting
           ? "Processing…"
           : isPaid
-          ? `Confirm & Pay ₹${totalPrice.toLocaleString("en-IN")}`
+          ? `Confirm & Pay ${totalPriceLabel}`
           : attendees.length > 1
           ? `Confirm ${attendees.length} Bookings`
           : "Confirm Booking"}
@@ -920,11 +931,11 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
             <div className="mt-5 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-100">
               {attendees.length > 1 && (
                 <p className="mb-1 text-xs text-slate-500">
-                  {attendees.length} attendees × ₹{cls.price.toLocaleString("en-IN")}
+                  {attendees.length} attendees x {seatPriceLabel}
                 </p>
               )}
               <p className="text-3xl font-black text-slate-900">
-                ₹{totalPrice.toLocaleString("en-IN")}
+                {totalPriceLabel}
               </p>
               <p className="mt-2 text-xs font-semibold text-slate-400">
                 Payable to: {businessName}

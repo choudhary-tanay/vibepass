@@ -341,7 +341,9 @@ export default function ClassAttendancePage() {
   }, [classId]);
 
   useEffect(() => {
-    loadAttendance();
+    queueMicrotask(() => {
+      void loadAttendance();
+    });
   }, [loadAttendance]);
 
   // Mark attendance action

@@ -87,8 +87,8 @@ export default function BookClassPage() {
   const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-white px-4 py-7 sm:px-6">
+      <div className="mx-auto max-w-[94rem]">
         <Link
           href={`/classes/${cls.id}`}
           className="mb-6 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -96,9 +96,9 @@ export default function BookClassPage() {
           ← Back to Class Details
         </Link>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,0.86fr)] lg:items-start">
-          <section className="overflow-hidden rounded-[2rem] bg-white shadow-sm">
-            <div className="relative min-h-80">
+        <div className="grid gap-7 lg:grid-cols-[minmax(0,1.08fr)_minmax(25rem,0.92fr)] lg:items-start">
+          <section className="overflow-hidden rounded-2xl bg-white shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/75">
+            <div className="relative min-h-80 lg:min-h-[26rem]">
               {cls.imageUrl ? (
                 <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
               ) : (
@@ -107,16 +107,23 @@ export default function BookClassPage() {
                   category={cls.category}
                   instructorName={cls.instructorName}
                   className="absolute inset-0 h-full w-full rounded-none"
+                  backgroundOnly
                 />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute left-5 top-5 flex flex-wrap gap-2">
+                <span className="rounded-full bg-violet-600 px-4 py-2 text-xs font-black uppercase text-white">{cls.category}</span>
+                {cls.featured && <span className="rounded-full bg-amber-300 px-4 py-2 text-xs font-black text-amber-950">Featured</span>}
+              </div>
+              <div className="absolute right-5 top-5 flex h-12 w-12 items-center justify-center rounded-xl bg-white text-xl font-black text-slate-950 shadow-md">
+                ↗
+              </div>
               <div className="absolute bottom-0 left-0 right-0 p-6">
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black uppercase text-white backdrop-blur-sm">{cls.category}</span>
-                  <span className="rounded-full bg-emerald-400 px-3 py-1 text-xs font-black text-emerald-950">{seatsLeft} seats left</span>
+                  <span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white">Live Class</span>
                 </div>
-                <h1 className="mt-3 text-3xl font-black leading-tight text-white sm:text-4xl">{cls.title}</h1>
-                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-white/85">{cls.tagline || cls.description}</p>
+                <h1 className="mt-3 line-clamp-2 text-3xl font-black leading-tight text-white sm:text-4xl">{cls.title}</h1>
+                <p className="mt-2 line-clamp-2 max-w-2xl text-sm font-semibold leading-6 text-white/85">{cls.tagline || cls.description}</p>
               </div>
             </div>
 
@@ -134,25 +141,43 @@ export default function BookClassPage() {
                 <p className="mt-1 truncate font-black text-slate-950">{cls.location}</p>
               </div>
               <div className="p-4">
-                <p className="text-xs font-black uppercase text-slate-400">Price</p>
-                <p className="mt-1 font-black text-slate-950">{cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}</p>
+                <p className="text-xs font-black uppercase text-slate-400">Seats left</p>
+                <p className="mt-1 font-black text-slate-950">{seatsLeft} / {cls.capacity}</p>
+                <p className="text-xs font-black text-emerald-600">seats available</p>
               </div>
             </div>
 
-            <div className="grid gap-5 p-5 md:grid-cols-[1fr_0.75fr]">
+            <div className="border-t border-slate-100 p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-teal-500 text-lg font-black text-white">
+                    {cls.instructorName.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-500">Instructor</p>
+                    <p className="font-black text-slate-950">{cls.instructorName || "Instructor"}</p>
+                    <p className="mt-1 text-sm font-semibold text-violet-600">Classical Dance Specialist</p>
+                  </div>
+                </div>
+                <Link href={`/classes/${cls.id}`} className="rounded-xl border border-violet-300 px-5 py-3 text-sm font-black text-violet-700 hover:bg-violet-50">
+                  View Profile
+                </Link>
+              </div>
+            </div>
+
+            <div className="grid gap-5 border-t border-slate-100 p-5 md:grid-cols-[1fr_0.75fr]">
               <div>
                 <p className="text-sm font-black text-slate-950">About this class</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{cls.description || "Complete the booking details to reserve your seat."}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase text-slate-400">Instructor</p>
-                <p className="mt-1 font-black text-slate-950">{cls.instructorName || "Instructor"}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">{businessName}</p>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase text-slate-400">What to bring</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">{cls.whatToBring || "Comfortable clothes, water bottle, and enthusiasm."}</p>
               </div>
             </div>
           </section>
 
-          <section className="rounded-[2rem] bg-white p-5 shadow-sm lg:sticky lg:top-6">
+          <section className="rounded-2xl bg-white p-6 shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/75 lg:sticky lg:top-6">
             <div className="mb-5">
               <h2 className="text-2xl font-black text-slate-950">Book your spot</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">

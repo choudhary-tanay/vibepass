@@ -44,7 +44,10 @@ export async function POST(req: Request) {
     locationType, venueDetails, onlineLink,
     whatToExpect, whoThisIsFor, whatToBring,
     difficultyLevel, tags, ageSuitability,
-    cancellationPolicy, instructorIds, imageUrl,
+    cancellationPolicy, refundPolicySummary,
+    customerCancellationAllowed, cancellationCutoffHours, cancellationCutoffBehavior,
+    refundFallbackOwnerCancel, refundFallbackCustomerCancel, refundRules,
+    instructorIds, imageUrl,
     publishImmediately,
   } = body;
 
@@ -90,6 +93,12 @@ export async function POST(req: Request) {
       tags: tags || null,
       age_suitability: ageSuitability || null,
       cancellation_policy: cancellationPolicy || null,
+      refund_policy_summary: refundPolicySummary || null,
+      customer_cancellation_allowed: customerCancellationAllowed ?? true,
+      cancellation_cutoff_hours: cancellationCutoffHours ?? null,
+      cancellation_cutoff_behavior: cancellationCutoffBehavior || "block",
+      refund_fallback_owner_cancel: refundFallbackOwnerCancel || "full_refund",
+      refund_fallback_customer_cancel: refundFallbackCustomerCancel || "manual_review",
       image_url: imageUrl || null,
       status,
     })
@@ -110,6 +119,32 @@ export async function POST(req: Request) {
   );
   if (classStaffError && !classStaffError.message.toLowerCase().includes("does not exist")) {
     console.error("Failed to save class staff:", classStaffError);
+  }
+
+  if (Array.isArray(refundRules)) {
+    const activeRules = refundRules.filter((rule) => rule && rule.isActive !== false);
+    if (activeRules.length > 0) {
+      const { error: rulesError } = await supabaseAdmin.from("class_refund_rules").insert(
+        activeRules.map((rule, index) => ({
+          class_id: cls.id,
+          business_id: staffRow.business_id,
+          rule_name: String(rule.ruleName || "Refund rule"),
+          applies_to: rule.appliesTo || "both",
+          min_hours_before_class: Number(rule.minHoursBeforeClass) || 0,
+          max_hours_before_class:
+            rule.maxHoursBeforeClass === null || rule.maxHoursBeforeClass === undefined || rule.maxHoursBeforeClass === ""
+              ? null
+              : Number(rule.maxHoursBeforeClass),
+          refund_type: rule.refundType || "percentage",
+          refund_value: Number(rule.refundValue) || 0,
+          priority: activeRules.length - index,
+          is_active: true,
+        }))
+      );
+      if (rulesError && !rulesError.message.toLowerCase().includes("does not exist")) {
+        console.error("Failed to save staff proposal refund rules:", rulesError);
+      }
+    }
   }
 
   return NextResponse.json({ ok: true, classId: cls.id, status });

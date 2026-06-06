@@ -7,6 +7,13 @@ import { useAppStore } from "@/lib/appStore";
 import { ClassImageTemplate, type ClassArtworkVariant } from "@/components/ClassImageTemplate";
 import { MultiSelect } from "@/components/CustomSelect";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  StructuredPolicyEditor,
+  defaultPolicyValue,
+  policyCutoffHours,
+  policySummaries,
+  type StructuredPolicyValue,
+} from "@/components/StructuredPolicyEditor";
 
 const CATEGORIES = [
   "Yoga", "Fitness", "Pilates", "Dance", "Martial Arts",
@@ -93,6 +100,8 @@ export default function StaffProposeClassPage() {
     whatToExpect: "",
     whoThisIsFor: "",
     whatToBring: "",
+    cancellationPolicy: "",
+    refundPolicySummary: "",
     noteToOwner: "",
     instructorIds: [] as string[],
     publishNow: true,
@@ -111,12 +120,23 @@ export default function StaffProposeClassPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageUploadWarning, setImageUploadWarning] = useState<string | null>(null);
+  const [policyValue, setPolicyValue] = useState<StructuredPolicyValue>(() => defaultPolicyValue());
 
   const selectedInstructorNames = form.instructorIds
     .map((staffId) => staff.find((member) => member.id === staffId)?.name)
     .filter((name): name is string => Boolean(name));
   const displayInstructorName =
     form.instructorName || selectedInstructorNames.join(", ") || profile?.name || "Instructor";
+
+  function handlePolicyChange(next: StructuredPolicyValue) {
+    const summaries = policySummaries(next, "INR");
+    setPolicyValue(next);
+    setForm((prev) => ({
+      ...prev,
+      cancellationPolicy: summaries.cancellationPolicy,
+      refundPolicySummary: summaries.refundPolicySummary,
+    }));
+  }
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -198,6 +218,7 @@ export default function StaffProposeClassPage() {
     setSaveError("");
 
     const imageUrl = await uploadImage();
+    const generatedPolicySummaries = policySummaries(policyValue, "INR");
 
     const res = await fetch("/api/staff/classes/create", {
       method: "POST",
@@ -221,6 +242,14 @@ export default function StaffProposeClassPage() {
         whatToExpect: form.whatToExpect || null,
         whoThisIsFor: form.whoThisIsFor || null,
         whatToBring: form.whatToBring || null,
+        cancellationPolicy: form.cancellationPolicy || generatedPolicySummaries.cancellationPolicy,
+        refundPolicySummary: form.refundPolicySummary || generatedPolicySummaries.refundPolicySummary,
+        customerCancellationAllowed: policyValue.customerCancellationAllowed,
+        cancellationCutoffHours: policyValue.customerCancellationAllowed ? policyCutoffHours(policyValue) : null,
+        cancellationCutoffBehavior: "block",
+        refundFallbackOwnerCancel: "full_refund",
+        refundFallbackCustomerCancel: policyValue.customerCancellationAllowed ? "manual_review" : "no_refund",
+        refundRules: policyValue.rules,
         noteToOwner: form.noteToOwner || null,
         imageUrl,
         publishImmediately: isManagement ? form.publishNow : false,
@@ -264,7 +293,41 @@ export default function StaffProposeClassPage() {
             </p>
             <div className="mt-8 flex flex-col gap-3">
               <button
-                onClick={() => { setSubmitted(false); setForm({ title: "", description: "", category: "", instructorName: profile?.name ?? "", date: "", startTime: "", endTime: "", price: "0", capacity: "15", locationType: "in_person", location: "", venueDetails: "", onlineLink: "", difficultyLevel: "", whatToExpect: "", whoThisIsFor: "", whatToBring: "", noteToOwner: "", instructorIds: [], publishNow: true }); setSaveError(""); setErrors({}); setCoverArtworkVariant("primary"); setCoverTextColor("#ffffff"); setImageFile(null); setImagePreview(null); setImageUploadWarning(null); }}
+                onClick={() => {
+                  setSubmitted(false);
+                  setForm({
+                    title: "",
+                    description: "",
+                    category: "",
+                    instructorName: profile?.name ?? "",
+                    date: "",
+                    startTime: "",
+                    endTime: "",
+                    price: "0",
+                    capacity: "15",
+                    locationType: "in_person",
+                    location: "",
+                    venueDetails: "",
+                    onlineLink: "",
+                    difficultyLevel: "",
+                    whatToExpect: "",
+                    whoThisIsFor: "",
+                    whatToBring: "",
+                    cancellationPolicy: "",
+                    refundPolicySummary: "",
+                    noteToOwner: "",
+                    instructorIds: [],
+                    publishNow: true,
+                  });
+                  setPolicyValue(defaultPolicyValue());
+                  setSaveError("");
+                  setErrors({});
+                  setCoverArtworkVariant("primary");
+                  setCoverTextColor("#ffffff");
+                  setImageFile(null);
+                  setImagePreview(null);
+                  setImageUploadWarning(null);
+                }}
                 className="rounded-xl bg-indigo-600 py-3 text-sm font-black text-white hover:bg-indigo-700"
               >
                 {isManagement ? "Create Another Class" : "Propose Another Class"}
@@ -565,6 +628,15 @@ export default function StaffProposeClassPage() {
                   placeholder="https://meet.google.com/..." className={inputClass(!!errors.onlineLink)} />
               </Field>
             )}
+          </div>
+
+          <div className="rounded-3xl bg-white p-6 shadow-sm space-y-5">
+            <h2 className="text-sm font-black uppercase tracking-wider text-slate-400">Policies</h2>
+            <StructuredPolicyEditor
+              value={policyValue}
+              onChange={handlePolicyChange}
+              currency="INR"
+            />
           </div>
 
           {/* Note to owner — only for instructors */}

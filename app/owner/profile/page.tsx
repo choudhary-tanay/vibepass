@@ -28,12 +28,14 @@ export default function OwnerProfilePage() {
 
   useEffect(() => {
     if (!currentBusiness) return;
-    setDisplayName(currentBusiness.publicDisplayName ?? currentBusiness.businessName);
-    setTagline(currentBusiness.brandTagline ?? "");
-    setPrimaryColor(currentBusiness.brandColor ?? "#4f46e5");
-    setSecondaryColor(currentBusiness.brandSecondaryColor ?? "#14b8a6");
-    setLogoUrl(currentBusiness.logoUrl ?? "");
-    setCoverUrl(currentBusiness.coverImageUrl ?? "");
+    queueMicrotask(() => {
+      setDisplayName(currentBusiness.publicDisplayName ?? currentBusiness.businessName);
+      setTagline(currentBusiness.brandTagline ?? "");
+      setPrimaryColor(currentBusiness.brandColor ?? "#4f46e5");
+      setSecondaryColor(currentBusiness.brandSecondaryColor ?? "#14b8a6");
+      setLogoUrl(currentBusiness.logoUrl ?? "");
+      setCoverUrl(currentBusiness.coverImageUrl ?? "");
+    });
   }, [currentBusiness]);
 
   function previewFile(file: File, setter: (value: string) => void) {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Class, Staff } from "@/types";
+import { formatCurrency } from "@/lib/currency";
 import { formatDate, formatTime } from "@/lib/utils";
 import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 
@@ -40,6 +41,34 @@ function fallbackInstructorsFromName(name: string): CardInstructor[] {
   }));
 }
 
+const categoryTone: Record<string, { label: string; button: string; badge: string }> = {
+  dance: {
+    label: "text-rose-500",
+    button: "border-rose-300 text-rose-600 hover:bg-rose-50",
+    badge: "bg-rose-50 text-rose-600",
+  },
+  yoga: {
+    label: "text-teal-600",
+    button: "border-teal-400 text-teal-700 hover:bg-teal-50",
+    badge: "bg-teal-50 text-teal-700",
+  },
+  meditation: {
+    label: "text-violet-600",
+    button: "border-violet-300 text-violet-700 hover:bg-violet-50",
+    badge: "bg-violet-50 text-violet-700",
+  },
+  fitness: {
+    label: "text-orange-500",
+    button: "border-orange-300 text-orange-600 hover:bg-orange-50",
+    badge: "bg-orange-50 text-orange-600",
+  },
+  other: {
+    label: "text-orange-500",
+    button: "border-orange-300 text-orange-600 hover:bg-orange-50",
+    badge: "bg-orange-50 text-orange-600",
+  },
+};
+
 export function ClassCard({
   cls,
   businessName,
@@ -66,29 +95,31 @@ export function ClassCard({
       ? `${displayInstructors.length} class instructors`
       : "class instructor";
   const instructorNames = displayInstructors.map((instructor) => instructor.name).join(", ");
+  const tone = categoryTone[cls.category.toLowerCase()] ?? categoryTone.yoga;
+  const priceLabel = cls.price === 0 ? "Free" : formatCurrency(cls.price, cls.currency ?? "INR");
 
   return (
-    <article className="group visual-panel flex min-h-full flex-col overflow-hidden rounded-[2rem] transition-transform hover:-translate-y-1">
-      <div className="relative p-3 pb-0">
-        {cls.imageUrl ? (
-          <div
-            className="min-h-48 rounded-[1.5rem] bg-cover bg-center shadow-inner"
-            style={{ backgroundImage: `url(${cls.imageUrl})` }}
-          />
-        ) : (
-          <ClassImageTemplate
-            title={cls.title}
-            category={cls.category}
-            instructorName={cls.instructorName}
-            className="min-h-48"
-          />
-        )}
-        <div className="absolute left-6 top-6 flex flex-wrap gap-2">
-          {(cls.featured || cls.browseFeatured) && (
-            <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-black uppercase text-indigo-700 shadow-sm backdrop-blur">
-              Featured
-            </span>
+    <article className="group flex min-h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.08)] transition-transform hover:-translate-y-1 dark:border-slate-800 dark:bg-slate-950">
+      <div className="relative">
+        <div className="aspect-[16/9] overflow-hidden bg-slate-100">
+          {cls.imageUrl ? (
+            <div
+              className="h-full w-full bg-cover bg-center shadow-inner"
+              style={{ backgroundImage: `url(${cls.imageUrl})` }}
+            />
+          ) : (
+            <ClassImageTemplate
+              title={cls.title}
+              category={cls.category}
+              instructorName={cls.instructorName}
+              className="h-full w-full rounded-none"
+              compact
+              backgroundOnly
+            />
           )}
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-slate-950/5 to-transparent" />
+        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           <span
             className={`rounded-full px-3 py-1 text-xs font-black shadow-sm backdrop-blur ${
               isFull
@@ -101,42 +132,47 @@ export function ClassCard({
             {statusLabel}
           </span>
         </div>
+        <div className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-sm font-black text-slate-950 shadow-md">
+          {initialsFor(cls.title)}
+        </div>
+        <span className="absolute bottom-3 right-3 rounded-full bg-white px-3 py-1 text-xs font-black text-rose-500 shadow-md">
+          {occupancy}% filled
+        </span>
       </div>
 
-      <div className="flex flex-1 flex-col p-5">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black uppercase text-blue-600">
+      <div className="flex flex-1 flex-col p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <span className={`text-xs font-black uppercase ${tone.label}`}>
             {cls.category}
-          </span>
-          <span className="text-xs font-black text-slate-400">
-            {occupancy}% filled
           </span>
         </div>
 
-        <h2 className="text-xl font-black leading-tight text-slate-950">
+        <h2 className="line-clamp-2 min-h-[3.15rem] text-lg font-black leading-tight text-slate-950 dark:text-white">
           {cls.title}
         </h2>
         <div className="mt-2 flex min-w-0 items-center gap-2">
           <div
-            className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-blue-50 text-[10px] font-black text-blue-700"
+            className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-[10px] font-black text-slate-700"
             style={businessBrandColor ? { backgroundColor: `${businessBrandColor}18`, color: businessBrandColor } : undefined}
           >
             {businessLogoUrl ? (
-              <img src={businessLogoUrl} alt="" className="h-full w-full object-cover" />
+              <span
+                className="h-full w-full bg-cover bg-center"
+                style={{ backgroundImage: `url(${businessLogoUrl})` }}
+              />
             ) : (
               initialsFor(businessName)
             )}
           </div>
-          <p className="truncate text-sm font-bold text-blue-600">{businessName}</p>
+          <p className="truncate text-xs font-bold text-slate-500">{businessName}</p>
         </div>
-
-        <div className="mt-4 rounded-[1.25rem] bg-white/72 p-3 shadow-sm ring-1 ring-slate-100 dark:bg-slate-950/50 dark:ring-slate-800">
+        <div className="mt-3">
           <div className="flex items-center gap-3">
-            <div className="flex shrink-0 -space-x-3">
+            <div className="flex shrink-0 -space-x-2">
               {visibleInstructors.map((instructor, index) => (
                 <div
                   key={`${instructor.id}-${index}`}
-                  className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border-2 border-white bg-gradient-to-br from-teal-400 to-indigo-500 text-sm font-black text-white shadow-lg dark:border-slate-950"
+                  className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-gradient-to-br from-violet-400 to-teal-500 text-[10px] font-black text-white shadow dark:border-slate-950"
                   title={instructor.name}
                 >
                   {instructor.imageUrl ? (
@@ -150,43 +186,37 @@ export function ClassCard({
                 </div>
               ))}
               {extraInstructors > 0 && (
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-white bg-slate-950 text-xs font-black text-white shadow-lg dark:border-slate-950">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-950 text-[10px] font-black text-white shadow dark:border-slate-950">
                   +{extraInstructors}
                 </div>
               )}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-black text-slate-950 dark:text-white">
+              <p className="truncate text-xs font-black text-slate-950 dark:text-white">
                 {instructorNames}
               </p>
-              <p className="truncate text-xs font-semibold capitalize text-slate-500 dark:text-slate-400">
+              <p className="truncate text-[11px] font-semibold capitalize text-slate-500 dark:text-slate-400">
                 {instructorLabel}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 rounded-[1.25rem] bg-slate-50/90 p-4 text-sm text-slate-600 dark:bg-slate-900/80">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-black text-slate-400">When</span>
-            <span className="text-right font-bold">{formatDate(cls.date)}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-black text-slate-400">Time</span>
-            <span className="text-right font-bold">
-              {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-black text-slate-400">Place</span>
-            <span className="line-clamp-1 text-right font-bold">{cls.location}</span>
-          </div>
+        <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          <p className="flex items-center gap-2">
+            <span className="text-slate-400">□</span>
+            {formatDate(cls.date)} <span className="text-slate-300">•</span> {formatTime(cls.startTime)} - {formatTime(cls.endTime)}
+          </p>
+          <p className="flex items-center gap-2">
+            <span className="text-slate-400">⌖</span>
+            <span className="line-clamp-1">{cls.location}</span>
+          </p>
         </div>
 
         <div className="mt-auto flex items-end justify-between gap-4 pt-5">
           <div>
             <p className="text-xl font-black text-slate-950">
-              {cls.price === 0 ? "Free" : `₹${cls.price.toLocaleString("en-IN")}`}
+              {priceLabel}
             </p>
             <p className="text-xs font-semibold text-slate-500">
               {isFull ? "No seats open" : `${seatsLeft} seat${seatsLeft !== 1 ? "s" : ""} left`}
@@ -202,7 +232,7 @@ export function ClassCard({
           ) : (
             <Link
               href={href}
-              className="touch-pill inline-flex items-center justify-center rounded-full bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700"
+              className={`touch-pill inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2 text-sm font-black ${tone.button}`}
             >
               {ctaLabel}
             </Link>

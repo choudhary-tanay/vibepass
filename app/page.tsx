@@ -227,37 +227,41 @@ export default async function Home() {
     : [3, 7, 6, 12, 10, 16];
 
   return (
-    <main className="min-h-screen px-4 py-7 sm:px-6 sm:py-10">
-      <section className="mx-auto max-w-7xl">
-        <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr] xl:items-stretch">
-          <div className="visual-panel motion-glow rounded-[2.25rem] p-5 sm:p-8">
+    <main className="min-h-screen bg-white px-4 py-6 sm:px-6 sm:py-8">
+      <section className="mx-auto max-w-[96rem]">
+        <div className="grid gap-6 xl:grid-cols-[1.02fr_0.98fr] xl:items-start">
+          <div className="h-fit rounded-[1.75rem] bg-white/82 p-5 shadow-[0_18px_54px_rgba(15,23,42,0.05)] ring-1 ring-slate-100 sm:p-8">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-black uppercase text-teal-700 dark:bg-teal-900/50 dark:text-teal-200">
-                Live marketplace
+                Live happening now
               </span>
               <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-black text-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                🎟️ Book classes, not tabs
+                Book classes, not vibes
               </span>
             </div>
 
-            <h1 className="gradient-headline mt-5 max-w-4xl text-4xl font-black leading-[1.04] sm:text-6xl lg:text-7xl">
-              Pick a class that matches your vibe today.
+            <h1 className="mt-5 max-w-3xl text-4xl font-black leading-[1.08] tracking-tight text-slate-950 sm:text-6xl">
+              Pick a class that matches your{" "}
+              <span className="relative inline-block bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text text-transparent">
+                vibe today.
+                <span className="absolute -bottom-1 left-0 h-1.5 w-28 rounded-full bg-amber-300" />
+              </span>
             </h1>
-            <p className="mt-5 max-w-2xl text-base font-medium leading-8 text-slate-600 dark:text-slate-300 sm:text-lg">
+            <p className="mt-5 max-w-2xl text-base font-medium leading-8 text-slate-600 dark:text-slate-300">
               Browse live schedules from local studios, compare instructors,
               seats, price, and location, then book a spot before it fills.
             </p>
 
-            <div className="mt-7 grid gap-3 rounded-[1.75rem] bg-white/68 p-3 shadow-sm dark:bg-slate-950/40 md:grid-cols-[1fr_12rem_auto]">
+            <div className="mt-7 grid gap-3 md:grid-cols-[1fr_12rem_auto]">
               <input
                 readOnly
                 value=""
                 placeholder="Search yoga, dance, HIIT, pilates..."
-                className="touch-pill rounded-[1.15rem] border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 placeholder-slate-400 outline-none"
+                className="touch-pill rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 placeholder-slate-400 shadow-sm outline-none"
               />
               <select
                 aria-label="Category"
-                className="touch-pill rounded-[1.15rem] border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 outline-none"
+                className="touch-pill rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 shadow-sm outline-none"
                 defaultValue=""
               >
                 <option value="">Any category</option>
@@ -269,9 +273,9 @@ export default async function Home() {
               </select>
               <Link
                 href="/classes"
-                className="touch-pill inline-flex items-center justify-center rounded-[1.15rem] bg-blue-600 px-5 py-3 text-center text-sm font-black text-white hover:bg-blue-700"
+                className="touch-pill inline-flex items-center justify-center rounded-xl bg-violet-600 px-5 py-3 text-center text-sm font-black text-white shadow-lg shadow-violet-500/20 hover:bg-violet-700"
               >
-                Browse live
+                Browse all
               </Link>
             </div>
 
@@ -280,7 +284,7 @@ export default async function Home() {
                 <Link
                   key={category}
                   href="/classes"
-                  className="motion-float touch-pill shrink-0 rounded-full bg-white/74 px-4 py-2 text-sm font-black text-teal-700 shadow-sm hover:-translate-y-0.5 hover:bg-teal-50 dark:bg-slate-900/70 dark:text-teal-200"
+                  className="touch-pill shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm hover:-translate-y-0.5 hover:bg-violet-50 hover:text-violet-700 dark:bg-slate-900/70 dark:text-teal-200"
                   style={{ animationDelay: `${index * 120}ms` }}
                 >
                   {category}
@@ -288,30 +292,30 @@ export default async function Home() {
               ))}
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            <div className="mt-8 grid gap-4 sm:grid-cols-3">
               <MetricRibbon label="Live classes" value={liveClasses.length} detail="ready to browse" tone="teal" />
               <MetricRibbon label="Seats open" value={seatsOpen} detail="across studios" tone="emerald" />
               <MetricRibbon label="Studios" value={bizRows?.length ?? 0} detail="marketplace visible" tone="indigo" />
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr] xl:grid-cols-1">
+          <div className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr] xl:grid-cols-1">
             <HomeFeaturedCarousel
               classes={homepageFeaturedClasses}
               businessNames={bizMap}
               instructorsByClassId={instructorsByClassId}
             />
-            <TrendLine points={trendPoints} label="Booking energy" />
+            <TrendLine points={trendPoints} label="Bookings last 7 days" />
           </div>
         </div>
 
         <section className="mt-10">
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-black uppercase text-blue-600">
+              <p className="text-sm font-black uppercase text-violet-600">
                 Upcoming live schedule
               </p>
-              <h2 className="mt-1 text-3xl font-black text-slate-950 sm:text-5xl">
+              <h2 className="mt-1 text-3xl font-black text-slate-950 sm:text-4xl">
                 Book what is happening next
               </h2>
             </div>
@@ -324,14 +328,14 @@ export default async function Home() {
           </div>
 
           {liveClasses.length > 0 ? (
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
               {liveClasses.map((cls) => (
                 <ClassCard
                   key={cls.id}
                   cls={cls}
                   businessName={bizMap[cls.businessId] ?? "Studio"}
                   instructors={instructorsByClassId[cls.id] ?? []}
-                  ctaLabel="See vibe"
+                  ctaLabel="View Details"
                 />
               ))}
             </div>

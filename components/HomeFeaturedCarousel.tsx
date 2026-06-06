@@ -43,7 +43,7 @@ function InstructorStack({
   const extra = Math.max(0, fallbackInstructors.length - visible.length);
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       <div className="flex -space-x-3">
         {visible.map((instructor, index) => (
           <div
@@ -67,7 +67,7 @@ function InstructorStack({
           </div>
         )}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-black text-white">
           {fallbackInstructors.map((instructor) => instructor.name).join(", ") ||
             "Class instructors"}
@@ -107,9 +107,9 @@ export function HomeFeaturedCarousel({
 
   if (!activeClass) {
     return (
-      <div className="visual-panel overflow-hidden rounded-[2.25rem] p-4">
-        <div
-          className="relative aspect-[4/3] overflow-hidden rounded-[1.75rem] bg-cover bg-center"
+    <div className="overflow-hidden rounded-[1.75rem] bg-white p-3 shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80 dark:bg-slate-950 dark:ring-slate-800">
+      <div
+          className="relative aspect-[16/10] overflow-hidden rounded-[1.25rem] bg-cover bg-center"
           style={{
             backgroundImage:
               "linear-gradient(90deg, rgba(15,23,42,.24), rgba(15,23,42,.05)), url(/art/vibepass-marketplace-hero.png)",
@@ -132,8 +132,8 @@ export function HomeFeaturedCarousel({
   const seatsLeft = Math.max(0, activeClass.capacity - activeClass.bookedCount);
 
   return (
-    <div className="visual-panel overflow-hidden rounded-[2.25rem] p-4">
-      <div className="relative min-h-[28rem] overflow-hidden rounded-[1.75rem] bg-slate-950">
+    <div className="overflow-hidden rounded-[1.75rem] bg-white p-3 shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80 dark:bg-slate-950 dark:ring-slate-800">
+      <div className="relative min-h-[25rem] overflow-hidden rounded-[1.25rem] bg-slate-950 sm:min-h-[26rem]">
         {activeClass.imageUrl ? (
           <div
             key={activeClass.id}
@@ -147,6 +147,7 @@ export function HomeFeaturedCarousel({
             category={activeClass.category}
             instructorName={activeClass.instructorName}
             className="animate-slide-in absolute inset-0 h-full w-full rounded-none"
+            backgroundOnly
           />
         )}
         {/* Bottom gradient — keeps content text readable */}
@@ -158,16 +159,16 @@ export function HomeFeaturedCarousel({
           <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-black uppercase text-slate-950 shadow-sm backdrop-blur">
             {activeClass.featuredLabel ?? "Featured"}
           </span>
-          <span className="rounded-full bg-teal-400 px-3 py-1 text-xs font-black text-teal-950 shadow-sm">
-            Slot {activeClass.featuredPosition ?? activeIndex + 1}
+          <span className="rounded-full bg-emerald-400 px-3 py-1 text-xs font-black text-emerald-950 shadow-sm">
+            Live
           </span>
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 p-5 sm:p-6">
-          <p className="text-xs font-black uppercase tracking-wide text-teal-200">
-            {businessNames[activeClass.businessId] ?? "Studio"} · {activeClass.category}
+          <p className="max-w-[min(100%,34rem)] truncate text-xs font-black uppercase tracking-wide text-emerald-300">
+            {activeClass.category} · {Math.round((activeClass.bookedCount / Math.max(activeClass.capacity, 1)) * 100)}% filled
           </p>
-          <h2 className="mt-2 max-w-xl text-3xl font-black leading-tight text-white sm:text-4xl">
+          <h2 className="mt-2 line-clamp-2 max-w-xl text-3xl font-black leading-tight text-white sm:text-4xl">
             {activeClass.title}
           </h2>
           <div className="mt-4">
@@ -177,15 +178,18 @@ export function HomeFeaturedCarousel({
             />
           </div>
 
-          <div className="mt-5 grid gap-2 text-sm font-bold text-white/82 sm:grid-cols-3">
-            <span className="rounded-2xl bg-white/12 px-3 py-2 backdrop-blur">
+          <div className="mt-5 grid gap-2 text-sm font-bold text-white/88 sm:grid-cols-2 xl:grid-cols-4">
+            <span className="min-w-0 rounded-xl bg-white/14 px-3 py-2 backdrop-blur">
               {formatDate(activeClass.date)}
             </span>
-            <span className="rounded-2xl bg-white/12 px-3 py-2 backdrop-blur">
+            <span className="min-w-0 rounded-xl bg-white/14 px-3 py-2 backdrop-blur">
               {formatTime(activeClass.startTime)} - {formatTime(activeClass.endTime)}
             </span>
-            <span className="rounded-2xl bg-white/12 px-3 py-2 backdrop-blur">
-              {seatsLeft} seat{seatsLeft !== 1 ? "s" : ""} open
+            <span className="min-w-0 truncate rounded-xl bg-white/14 px-3 py-2 backdrop-blur">
+              {activeClass.location || businessNames[activeClass.businessId] || "Studio"}
+            </span>
+            <span className="min-w-0 rounded-xl bg-white/14 px-3 py-2 backdrop-blur">
+              {seatsLeft} seat{seatsLeft !== 1 ? "s" : ""} left
             </span>
           </div>
 
@@ -205,7 +209,7 @@ export function HomeFeaturedCarousel({
             </div>
             <Link
               href={`/classes/${activeClass.id}`}
-              className="touch-pill inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-black text-slate-950 shadow-lg hover:bg-teal-50"
+              className="touch-pill inline-flex items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-black text-slate-950 shadow-lg hover:bg-violet-50"
             >
               View featured class
             </Link>
@@ -214,20 +218,20 @@ export function HomeFeaturedCarousel({
       </div>
 
       {slides.length > 1 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {slides.map((slide, index) => (
             <button
               key={slide.id}
               type="button"
               onClick={() => setActiveIndex(index)}
-              className={`min-w-44 rounded-2xl border px-3 py-2 text-left transition-all ${
+              className={`rounded-xl border px-4 py-3 text-left transition-all ${
                 index === safeActiveIndex
-                  ? "border-teal-300 bg-teal-50 text-teal-950 dark:border-teal-500 dark:bg-teal-950/50 dark:text-teal-50"
-                  : "border-slate-200 bg-white/68 text-slate-600 hover:bg-white dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300"
+                  ? "border-violet-300 bg-violet-50 text-slate-950 dark:border-violet-500 dark:bg-violet-950/50 dark:text-violet-50"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300"
               }`}
             >
-              <p className="truncate text-xs font-black uppercase">
-                Slot {slide.featuredPosition ?? index + 1}
+              <p className="truncate text-xs font-black text-slate-500 dark:text-slate-400">
+                {formatTime(slide.startTime)} - {formatTime(slide.endTime)}
               </p>
               <p className="mt-0.5 truncate text-sm font-black">{slide.title}</p>
             </button>

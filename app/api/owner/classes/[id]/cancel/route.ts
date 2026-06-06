@@ -51,6 +51,7 @@ interface SponsorDecisionInput {
   originalAmount: number;
   retainedAmount: number;
   refundAmount: number;
+  refundCreatesPayable?: boolean;
   action: "retained" | "refund" | "partial_refund" | "cancelled";
   note?: string;
 }
@@ -362,6 +363,7 @@ export async function GET(
       originalAmount: amount,
       retainedAmount: amount,
       refundAmount: 0,
+      refundCreatesPayable: false,
       action: sponsor.payment_status === "cancelled" ? "cancelled" : "retained",
       paymentStatus: String(sponsor.payment_status ?? "expected"),
       sponsorStatus: String(sponsor.sponsor_status ?? "active"),
@@ -500,7 +502,13 @@ export async function POST(
   const customLossTotal = money((body.cancellationCosts ?? []).filter((item) => item.costType === "custom").reduce((sum, item) => sum + numberValue(item.payableAmount), 0));
   const sponsorRetainedTotal = money((body.sponsorDecisions ?? []).reduce((sum, item) => sum + numberValue(item.retainedAmount), 0));
   const sponsorRefundTotal = money((body.sponsorDecisions ?? []).reduce((sum, item) => sum + numberValue(item.refundAmount), 0));
-  const cancellationLossTotal = money(staffPayableTotal + venuePayableTotal + expensesPayableTotal + taxPayableTotal + customLossTotal + sponsorRefundTotal);
+  const sponsorRefundPayableTotal = money(
+    (body.sponsorDecisions ?? []).reduce(
+      (sum, item) => sum + (item.refundCreatesPayable ? numberValue(item.refundAmount) : 0),
+      0
+    )
+  );
+  const cancellationLossTotal = money(staffPayableTotal + venuePayableTotal + expensesPayableTotal + taxPayableTotal + customLossTotal + sponsorRefundPayableTotal);
   const platformFeeAdjustment = totalRefundAmount > 0 ? -platformFee : 0;
   const finalNetImpact = money(retainedRevenue + sponsorRetainedTotal - cancellationLossTotal);
 
@@ -633,7 +641,7 @@ export async function POST(
         note: decision.note,
       })),
     ...(body.sponsorDecisions ?? [])
-      .filter((decision) => numberValue(decision.refundAmount) > 0)
+      .filter((decision) => decision.refundCreatesPayable && numberValue(decision.refundAmount) > 0)
       .map((decision): CancellationCostInput => ({
         costType: "sponsor_refund",
         relatedEntityId: decision.classSponsorId,
@@ -757,6 +765,7 @@ export async function POST(
     expensesPayableTotal,
     sponsorRetainedTotal,
     sponsorRefundTotal,
+    sponsorRefundPayableTotal,
     cancellationLossTotal,
     finalNetImpact,
     snapshotUpdated,

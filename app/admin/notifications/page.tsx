@@ -34,7 +34,9 @@ export default function AdminNotificationsPage() {
   }
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => {
+      void load();
+    });
   }, []);
 
   async function markAllRead() {

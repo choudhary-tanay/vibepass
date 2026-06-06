@@ -9,6 +9,13 @@ import { LocationInput } from "@/components/LocationInput";
 import { supabase } from "@/lib/supabaseClient";
 import { MultiSelect } from "@/components/CustomSelect";
 import {
+  StructuredPolicyEditor,
+  defaultPolicyValue,
+  policyCutoffHours,
+  policySummaries,
+  type StructuredPolicyValue,
+} from "@/components/StructuredPolicyEditor";
+import {
   calculateClassFinancialModel,
   calculatePlatformFeePerBooking,
   calculateStaffCommissionPerBooking,
@@ -238,6 +245,7 @@ export default function CreateClassPage() {
   const [bookingTemplates, setBookingTemplates] = useState<BookingFormTemplateRow[]>([]);
   const [selectedBookingTemplateId, setSelectedBookingTemplateId] = useState("");
   const [bookingTemplatesError, setBookingTemplatesError] = useState("");
+  const [policyValue, setPolicyValue] = useState<StructuredPolicyValue>(() => defaultPolicyValue());
 
   function toggleSection(n: number) {
     setOpenSections(prev => {
@@ -311,6 +319,36 @@ export default function CreateClassPage() {
   const netPerBooking = previewFinancials.netRevenuePerBooking;
   const breakEvenCount = previewFinancials.breakEvenBookings;
   const selectedVenue = venues.find((venue) => venue.id === form.venueId);
+
+  function handlePolicyChange(next: StructuredPolicyValue) {
+    const summaries = policySummaries(next, currency);
+    setPolicyValue(next);
+    setForm((prev) => ({
+      ...prev,
+      cancellationPolicy: summaries.cancellationPolicy,
+      refundPolicySummary: summaries.refundPolicySummary,
+    }));
+  }
+
+  async function saveRefundRules(classId: string, policy: StructuredPolicyValue) {
+    for (const [index, rule] of policy.rules.entries()) {
+      if (!rule.isActive) continue;
+      await fetch(`/api/owner/classes/${classId}/refund-rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appliesTo: rule.appliesTo,
+          minHoursBeforeClass: rule.minHoursBeforeClass,
+          maxHoursBeforeClass: rule.maxHoursBeforeClass,
+          ruleName: rule.ruleName,
+          refundType: rule.refundType,
+          refundValue: rule.refundValue,
+          priority: policy.rules.length - index,
+          isActive: rule.isActive,
+        }),
+      }).catch(() => null);
+    }
+  }
 
   useEffect(() => {
     if (!currentBusiness) return;
@@ -508,6 +546,7 @@ export default function CreateClassPage() {
     const tags = form.tagsInput
       ? form.tagsInput.split(",").map((t) => t.trim()).filter(Boolean)
       : undefined;
+    const generatedPolicySummaries = policySummaries(policyValue, currency);
 
     const staffCommissions: ClassStaffCommissionInput[] = selectedStaffIds.map((staffId) => {
       const rule = commissionRules[staffId] ?? defaultCommissionRule();
@@ -548,8 +587,13 @@ export default function CreateClassPage() {
       locationType: form.locationType,
       venueDetails: form.venueDetails || undefined,
       onlineLink: form.onlineLink || undefined,
-      cancellationPolicy: form.cancellationPolicy || undefined,
-      refundPolicySummary: form.refundPolicySummary || undefined,
+      cancellationPolicy: form.cancellationPolicy || generatedPolicySummaries.cancellationPolicy,
+      refundPolicySummary: form.refundPolicySummary || generatedPolicySummaries.refundPolicySummary,
+      customerCancellationAllowed: policyValue.customerCancellationAllowed,
+      cancellationCutoffHours: policyValue.customerCancellationAllowed ? policyCutoffHours(policyValue) : null,
+      cancellationCutoffBehavior: "block",
+      refundFallbackOwnerCancel: "full_refund",
+      refundFallbackCustomerCancel: policyValue.customerCancellationAllowed ? "manual_review" : "no_refund",
       featured: false,
       featureRequested: form.featureRequested,
       featureRequestNote: form.featureRequestNote || undefined,
@@ -572,6 +616,8 @@ export default function CreateClassPage() {
       setSaving(false);
       return;
     }
+
+    await saveRefundRules(result.classId, policyValue);
 
     for (const expense of draftExpenses) {
       if (!expense.name.trim()) continue;
@@ -629,6 +675,7 @@ export default function CreateClassPage() {
     setFixedClassCosts({});
     setDraftExpenses([]);
     setDraftSponsors([]);
+    handlePolicyChange(defaultPolicyValue());
     setSelectedBookingTemplateId("");
     setSaveError(null); setImagePreview(null); setImageFile(null); setImageUploadWarning(null);
     setCoverArtworkVariant("primary"); setCoverTextColor("#ffffff");
@@ -1306,20 +1353,11 @@ export default function CreateClassPage() {
               summary={form.cancellationPolicy ? form.cancellationPolicy.slice(0, 50) + "…" : "Cancellation and refund policy"}
               open={openSections.has(8)} onToggle={() => toggleSection(8)}
             >
-              <div className="space-y-4">
-                <Field label="Cancellation policy" name="cancellationPolicy">
-                  <textarea id="cancellationPolicy" name="cancellationPolicy" value={form.cancellationPolicy}
-                    onChange={handleChange} rows={2}
-                    placeholder="e.g. Cancellations accepted up to 24 hours before the class."
-                    className={inputClass(false)} />
-                </Field>
-                <Field label="Refund policy summary" name="refundPolicySummary">
-                  <textarea id="refundPolicySummary" name="refundPolicySummary" value={form.refundPolicySummary}
-                    onChange={handleChange} rows={2}
-                    placeholder="e.g. Full refund if cancelled 24 hours before. No refund for no-shows."
-                    className={inputClass(false)} />
-                </Field>
-              </div>
+              <StructuredPolicyEditor
+                value={policyValue}
+                onChange={handlePolicyChange}
+                currency={currency}
+              />
             </Section>
 
             {/* 9. Sponsorship */}

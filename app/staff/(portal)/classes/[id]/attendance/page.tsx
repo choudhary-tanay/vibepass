@@ -66,7 +66,9 @@ export default function StaffAttendancePage() {
   }, [classId]);
 
   useEffect(() => {
-    void loadAttendance();
+    queueMicrotask(() => {
+      void loadAttendance();
+    });
   }, [loadAttendance]);
 
   async function markAttendance(attendeeId: string, status: AttendanceStatus) {

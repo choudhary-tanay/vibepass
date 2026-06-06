@@ -105,6 +105,11 @@ export interface Class {
   onlineLink?: string;
   cancellationPolicy?: string;
   refundPolicySummary?: string;
+  customerCancellationAllowed?: boolean;
+  cancellationCutoffHours?: number | null;
+  cancellationCutoffBehavior?: string | null;
+  refundFallbackOwnerCancel?: string | null;
+  refundFallbackCustomerCancel?: string | null;
   featured?: boolean;
   featuredPosition?: number;
   featuredLabel?: string;

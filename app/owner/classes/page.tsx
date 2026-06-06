@@ -66,7 +66,9 @@ interface CancellationSponsorLine {
   originalAmount: number;
   retainedAmount: number;
   refundAmount: number;
+  refundCreatesPayable?: boolean;
   action: "retained" | "refund" | "partial_refund" | "cancelled";
+  paymentStatus?: string;
   note?: string;
 }
 
@@ -198,10 +200,13 @@ function CancelClassModal({
   const customPayableTotal = sumCostLines(costLines, "custom");
   const sponsorRetainedTotal = roundMoney(sponsorLines.reduce((sum, line) => sum + moneyValue(line.retainedAmount), 0));
   const sponsorRefundTotal = roundMoney(sponsorLines.reduce((sum, line) => sum + moneyValue(line.refundAmount), 0));
+  const sponsorRefundPayableTotal = roundMoney(
+    sponsorLines.reduce((sum, line) => sum + (line.refundCreatesPayable ? moneyValue(line.refundAmount) : 0), 0)
+  );
   const cancellationLossTotal = roundMoney(
     staffPayableTotal +
       costLines.reduce((sum, line) => sum + moneyValue(line.payableAmount), 0) +
-      sponsorRefundTotal
+      sponsorRefundPayableTotal
   );
   const finalNetImpact = roundMoney(retainedRevenue + sponsorRetainedTotal - cancellationLossTotal);
 
@@ -293,10 +298,10 @@ function CancelClassModal({
       prev.map((line, i) => {
         if (i !== index) return line;
         const originalAmount = moneyValue(line.originalAmount);
-        if (action === "retained") return { ...line, action, retainedAmount: originalAmount, refundAmount: 0 };
-        if (action === "refund" || action === "cancelled") return { ...line, action, retainedAmount: 0, refundAmount: originalAmount };
+        if (action === "retained") return { ...line, action, retainedAmount: originalAmount, refundAmount: 0, refundCreatesPayable: false };
+        if (action === "refund" || action === "cancelled") return { ...line, action, retainedAmount: 0, refundAmount: originalAmount, refundCreatesPayable: false };
         const refundAmount = line.refundAmount > 0 ? moneyValue(line.refundAmount) : roundMoney(originalAmount / 2);
-        return { ...line, action, refundAmount, retainedAmount: roundMoney(originalAmount - refundAmount) };
+        return { ...line, action, refundAmount, retainedAmount: roundMoney(originalAmount - refundAmount), refundCreatesPayable: false };
       })
     );
   }
@@ -577,10 +582,10 @@ function CancelClassModal({
                             onChange={(e) => setSponsorAction(index, e.target.value as CancellationSponsorLine["action"])}
                             className="rounded-xl border border-slate-200 px-2 py-2 text-xs font-bold outline-none"
                           >
-                            <option value="retained">Retain</option>
-                            <option value="refund">Refund</option>
-                            <option value="partial_refund">Partial refund</option>
-                            <option value="cancelled">Cancelled</option>
+                            <option value="retained">Retain income</option>
+                            <option value="refund">Refund / not retained</option>
+                            <option value="partial_refund">Partial retain</option>
+                            <option value="cancelled">Cancel sponsor</option>
                           </select>
                           <div className="flex items-center gap-2">
                             <input
@@ -594,11 +599,22 @@ function CancelClassModal({
                                   action: refundAmount > 0 && refundAmount < moneyValue(line.originalAmount) ? "partial_refund" : refundAmount >= moneyValue(line.originalAmount) ? "refund" : "retained",
                                   refundAmount,
                                   retainedAmount: roundMoney(moneyValue(line.originalAmount) - refundAmount),
+                                  refundCreatesPayable: false,
                                 });
                               }}
                               className="w-28 rounded-xl border border-slate-200 px-2 py-2 text-right text-sm outline-none focus:border-indigo-400"
                             />
                           </div>
+                          <label className="flex w-full items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-600 sm:w-auto">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(line.refundCreatesPayable)}
+                              disabled={moneyValue(line.refundAmount) <= 0}
+                              onChange={(e) => updateSponsorLine(index, { refundCreatesPayable: e.target.checked })}
+                              className="accent-indigo-600"
+                            />
+                            Sponsor cash was received; refund is payable
+                          </label>
                         </CancellationLineCard>
                       ))
                     )}
@@ -619,7 +635,8 @@ function CancelClassModal({
                       <CancelSummaryRow label="Venue payable" value={formatCurrency(venuePayableTotal, currency)} />
                       <CancelSummaryRow label="Expenses payable" value={formatCurrency(expensesPayableTotal + taxPayableTotal + customPayableTotal, currency)} />
                       <CancelSummaryRow label="Sponsor retained" value={formatCurrency(sponsorRetainedTotal, currency)} />
-                      <CancelSummaryRow label="Sponsor refund" value={formatCurrency(sponsorRefundTotal, currency)} />
+                      <CancelSummaryRow label="Sponsor not retained" value={formatCurrency(sponsorRefundTotal, currency)} />
+                      <CancelSummaryRow label="Sponsor refund payable" value={formatCurrency(sponsorRefundPayableTotal, currency)} />
                       <CancelSummaryRow label="Cancellation loss total" value={formatCurrency(cancellationLossTotal, currency)} />
                       <CancelSummaryRow label="Final net impact" value={formatCurrency(finalNetImpact, currency)} strong />
                     </dl>

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { formatCurrency } from "@/lib/currency";
 
 export interface BookingEmailParams {
   customerName: string;
@@ -12,6 +13,7 @@ export interface BookingEmailParams {
   businessName: string;
   ownerEmail: string;
   amount: number;
+  currency?: string;
   isPaid: boolean;
   seatCount?: number;
 }
@@ -48,7 +50,7 @@ export async function sendBookingEmails(params: BookingEmailParams): Promise<voi
   const formattedDate = formatDate(params.classDate);
   const formattedTime = `${formatTime(params.classStartTime)} – ${formatTime(params.classEndTime)}`;
   const priceText = params.isPaid
-    ? `₹${params.amount.toLocaleString("en-IN")}`
+    ? formatCurrency(params.amount, params.currency ?? "INR")
     : "Free";
 
   const customerHtml = `

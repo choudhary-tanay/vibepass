@@ -84,6 +84,11 @@ interface DbClass {
   online_link: string | null;
   cancellation_policy: string | null;
   refund_policy_summary: string | null;
+  customer_cancellation_allowed?: boolean | null;
+  cancellation_cutoff_hours?: number | null;
+  cancellation_cutoff_behavior?: string | null;
+  refund_fallback_owner_cancel?: string | null;
+  refund_fallback_customer_cancel?: string | null;
   featured: boolean;
   featured_position: number | null;
   featured_label: string | null;
@@ -239,6 +244,11 @@ function toClass(row: DbClass, classStaffByClass?: Record<string, string[]>): Cl
     onlineLink: row.online_link ?? undefined,
     cancellationPolicy: row.cancellation_policy ?? undefined,
     refundPolicySummary: row.refund_policy_summary ?? undefined,
+    customerCancellationAllowed: row.customer_cancellation_allowed ?? undefined,
+    cancellationCutoffHours: row.cancellation_cutoff_hours ?? undefined,
+    cancellationCutoffBehavior: row.cancellation_cutoff_behavior ?? undefined,
+    refundFallbackOwnerCancel: row.refund_fallback_owner_cancel ?? undefined,
+    refundFallbackCustomerCancel: row.refund_fallback_customer_cancel ?? undefined,
     featured: row.featured,
     featuredPosition: row.featured_position ?? undefined,
     featuredLabel: row.featured_label ?? undefined,
@@ -568,6 +578,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         online_link: cls.onlineLink ?? null,
         cancellation_policy: cls.cancellationPolicy ?? null,
         refund_policy_summary: cls.refundPolicySummary ?? null,
+        customer_cancellation_allowed: cls.customerCancellationAllowed ?? true,
+        cancellation_cutoff_hours: cls.cancellationCutoffHours ?? null,
+        cancellation_cutoff_behavior: cls.cancellationCutoffBehavior ?? "block",
+        refund_fallback_owner_cancel: cls.refundFallbackOwnerCancel ?? "full_refund",
+        refund_fallback_customer_cancel: cls.refundFallbackCustomerCancel ?? "manual_review",
         featured: cls.featured ?? false,
         featured_position: cls.featuredPosition ?? null,
         featured_label: cls.featuredLabel ?? null,
@@ -673,6 +688,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data.onlineLink !== undefined) patch.online_link = data.onlineLink || null;
     if (data.cancellationPolicy !== undefined) patch.cancellation_policy = data.cancellationPolicy || null;
     if (data.refundPolicySummary !== undefined) patch.refund_policy_summary = data.refundPolicySummary || null;
+    if (data.customerCancellationAllowed !== undefined) patch.customer_cancellation_allowed = data.customerCancellationAllowed;
+    if (data.cancellationCutoffHours !== undefined) patch.cancellation_cutoff_hours = data.cancellationCutoffHours ?? null;
+    if (data.cancellationCutoffBehavior !== undefined) patch.cancellation_cutoff_behavior = data.cancellationCutoffBehavior ?? "block";
+    if (data.refundFallbackOwnerCancel !== undefined) patch.refund_fallback_owner_cancel = data.refundFallbackOwnerCancel ?? "full_refund";
+    if (data.refundFallbackCustomerCancel !== undefined) patch.refund_fallback_customer_cancel = data.refundFallbackCustomerCancel ?? "manual_review";
     if (data.featured !== undefined) patch.featured = data.featured;
     if (data.featuredPosition !== undefined) patch.featured_position = data.featuredPosition ?? null;
     if (data.featuredLabel !== undefined) patch.featured_label = data.featuredLabel || null;

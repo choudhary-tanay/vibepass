@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
+import { formatCurrency } from "@/lib/currency";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
 import DataTable, { Th, Td, type ColDef } from "@/components/DataTable";
 
@@ -312,7 +313,7 @@ export default function CustomerBookingsPage() {
                         )}
                         {vis.has("amount") && (
                           <Td className="text-gray-700 font-medium">
-                            {b.amount === 0 ? "Free" : `₹${b.amount.toLocaleString("en-IN")}`}
+                            {b.amount === 0 ? "Free" : formatCurrency(b.amount, cls?.currency ?? "INR")}
                           </Td>
                         )}
                         {vis.has("refund") && (
@@ -336,7 +337,7 @@ export default function CustomerBookingsPage() {
                             {cancelSuccessMap[b.id] ? (
                               <span className="text-xs font-semibold text-emerald-600">
                                 Cancelled{cancelSuccessMap[b.id].refundAmount != null && cancelSuccessMap[b.id].refundAmount! > 0
-                                  ? ` — Refund: ₹${cancelSuccessMap[b.id].refundAmount!.toLocaleString("en-IN")}`
+                                  ? ` - Refund: ${formatCurrency(cancelSuccessMap[b.id].refundAmount!, cls?.currency ?? "INR")}`
                                   : ""}
                               </span>
                             ) : cancelErrorMap[b.id] ? (

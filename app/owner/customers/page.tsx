@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/lib/appStore";
+import { formatCurrency } from "@/lib/currency";
 import { OwnerPageHeader } from "@/components/OwnerUI";
 
 // ---------------------------------------------------------------------------
@@ -30,11 +31,11 @@ interface CustomersResponse {
 }
 
 interface CustomerDetail {
-  bookings?: Array<{ id: string; classTitle?: string; bookingStatus?: string; paymentStatus?: string; amount?: number }>;
+  bookings?: Array<{ id: string; classTitle?: string; bookingStatus?: string; paymentStatus?: string; amount?: number; currency?: string }>;
   attendees?: Array<{ id: string; attendee_name?: string; attendee_email?: string | null; attendee_type?: string; attendance_status?: string | null }>;
   linkedIdentities?: Array<{ id: string; identity_type?: string; identity_value?: string; normalized_value?: string }>;
   formResponses?: Array<{ id: string; booking_id?: string; field_label?: string; response_value?: string | number | boolean | null }>;
-  refundHistory?: Array<{ id: string; refund_status?: string; refund_amount?: number; retained_amount?: number }>;
+  refundHistory?: Array<{ id: string; refund_status?: string; refund_amount?: number; retained_amount?: number; currency?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +234,7 @@ function CustomerSlideOver({
                         <div key={booking.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
                           <p className="font-bold text-gray-800">{booking.classTitle ?? "Class"}</p>
                           <p className="text-xs text-gray-500">
-                            {booking.bookingStatus} · {booking.paymentStatus} · ₹{Number(booking.amount ?? 0).toLocaleString("en-IN")}
+                            {booking.bookingStatus} · {booking.paymentStatus} · {formatCurrency(Number(booking.amount ?? 0), booking.currency ?? "INR")}
                           </p>
                         </div>
                       ))
@@ -292,7 +293,7 @@ function CustomerSlideOver({
                         <div key={refund.id} className="rounded-xl bg-gray-50 px-3 py-2 text-sm">
                           <p className="font-bold text-gray-800">{refund.refund_status}</p>
                           <p className="text-xs text-gray-500">
-                            Refund ₹{Number(refund.refund_amount ?? 0).toLocaleString("en-IN")} · Retained ₹{Number(refund.retained_amount ?? 0).toLocaleString("en-IN")}
+                            Refund {formatCurrency(Number(refund.refund_amount ?? 0), refund.currency ?? "INR")} · Retained {formatCurrency(Number(refund.retained_amount ?? 0), refund.currency ?? "INR")}
                           </p>
                         </div>
                       ))}

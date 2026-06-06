@@ -54,6 +54,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing required fields" }, { status: 400 });
   }
 
+  if (typeof amount !== "number" || amount <= 0) {
+    return Response.json({ error: "Invalid amount" }, { status: 400 });
+  }
+
   // Verify Razorpay signature: HMAC-SHA256 of "orderId|paymentId"
   const expectedSignature = crypto
     .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
@@ -69,7 +73,31 @@ export async function POST(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  const { data: classCurrencyRow, error: classError } = await supabase
+    .from("classes")
+    .select("price, currency, business_id, status")
+    .eq("id", classId)
+    .single();
+
+  if (classError || !classCurrencyRow) {
+    return Response.json({ error: "Class not found" }, { status: 404 });
+  }
+
+  if (classCurrencyRow.business_id !== businessId) {
+    return Response.json({ error: "Business does not match class." }, { status: 400 });
+  }
+
+  if (classCurrencyRow.status !== "published") {
+    return Response.json({ error: "Class is not available for booking" }, { status: 400 });
+  }
+
+  const paymentCurrency = String(classCurrencyRow.currency ?? "INR").toUpperCase();
+
   const seatsNeeded = attendees.length;
+  const expectedAmount = Number(classCurrencyRow.price ?? 0) * seatsNeeded;
+  if (Math.abs(amount - expectedAmount) > 0.01) {
+    return Response.json({ error: "Payment amount does not match class price." }, { status: 400 });
+  }
 
   // Atomically claim all seats. If the class filled while payment was processing,
   // this returns false — the payment record will be marked refund_required.
@@ -89,7 +117,7 @@ export async function POST(request: Request) {
       class_id: classId,
       business_id: businessId,
       amount,
-      currency: "INR",
+      currency: paymentCurrency,
       gateway: "razorpay",
       gateway_payment_id: razorpay_payment_id,
       gateway_order_id: razorpay_order_id,
@@ -145,7 +173,7 @@ export async function POST(request: Request) {
     class_id: classId,
     business_id: businessId,
     amount,
-    currency: "INR",
+    currency: paymentCurrency,
     gateway: "razorpay",
     gateway_payment_id: razorpay_payment_id,
     gateway_order_id: razorpay_order_id,
@@ -186,6 +214,7 @@ export async function POST(request: Request) {
       businessName: bizDetails.business_name,
       ownerEmail: bizDetails.email,
       amount,
+      currency: paymentCurrency,
       isPaid: true,
       seatCount: seatsNeeded,
     }).catch((err) => console.error("Email send error:", err));

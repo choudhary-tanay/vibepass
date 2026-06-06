@@ -8,6 +8,14 @@ import { useAppStore } from "@/lib/appStore";
 import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 import { LocationInput } from "@/components/LocationInput";
 import { MultiSelect } from "@/components/CustomSelect";
+import {
+  StructuredPolicyEditor,
+  defaultPolicyValue,
+  newRefundRuleDraft,
+  policyCutoffHours,
+  policySummaries,
+  type StructuredPolicyValue,
+} from "@/components/StructuredPolicyEditor";
 import type { ClassStatus, CommissionType } from "@/types";
 import {
   calculateClassFinancialModel,
@@ -114,6 +122,11 @@ interface ClassRow {
   location_type: string | null; venue_details: string | null;
   online_link: string | null; cancellation_policy: string | null;
   refund_policy_summary: string | null; featured: boolean;
+  customer_cancellation_allowed?: boolean | null;
+  cancellation_cutoff_hours?: number | null;
+  cancellation_cutoff_behavior?: string | null;
+  refund_fallback_owner_cancel?: string | null;
+  refund_fallback_customer_cancel?: string | null;
   featured_request_status: "none" | "requested" | "approved" | "rejected" | null;
   featured_request_note: string | null;
   featured_requested_at: string | null;
@@ -185,6 +198,7 @@ export default function EditClassPage() {
   const [onlineLink, setOnlineLink] = useState("");
   const [cancellationPolicy, setCancellationPolicy] = useState("");
   const [refundPolicySummary, setRefundPolicySummary] = useState("");
+  const [policyValue, setPolicyValue] = useState<StructuredPolicyValue>(() => defaultPolicyValue());
   const [status, setStatus] = useState("draft");
   const [featured, setFeatured] = useState(false);
   const [featureRequested, setFeatureRequested] = useState(false);
@@ -305,6 +319,44 @@ export default function EditClassPage() {
   const perBookingNet = financialPreview.netRevenuePerBooking;
   const selectedVenue = venues.find((venue) => venue.id === venueId);
 
+  function handlePolicyChange(next: StructuredPolicyValue) {
+    const summaries = policySummaries(next, currency);
+    setPolicyValue(next);
+    setCancellationPolicy(summaries.cancellationPolicy);
+    setRefundPolicySummary(summaries.refundPolicySummary);
+  }
+
+  async function replaceRefundRules(classId: string, policy: StructuredPolicyValue) {
+    const existing = await fetch(`/api/owner/classes/${classId}/refund-rules`).catch(() => null);
+    if (existing?.ok) {
+      const body = await existing.json().catch(() => ({}));
+      for (const rule of body.rules ?? []) {
+        if (!rule.id) continue;
+        await fetch(`/api/owner/classes/${classId}/refund-rules?ruleId=${rule.id}`, {
+          method: "DELETE",
+        }).catch(() => null);
+      }
+    }
+
+    for (const [index, rule] of policy.rules.entries()) {
+      if (!rule.isActive) continue;
+      await fetch(`/api/owner/classes/${classId}/refund-rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appliesTo: rule.appliesTo,
+          minHoursBeforeClass: rule.minHoursBeforeClass,
+          maxHoursBeforeClass: rule.maxHoursBeforeClass,
+          ruleName: rule.ruleName,
+          refundType: rule.refundType,
+          refundValue: rule.refundValue,
+          priority: policy.rules.length - index,
+          isActive: rule.isActive,
+        }),
+      }).catch(() => null);
+    }
+  }
+
   useEffect(() => {
     async function load() {
       const { data, error } = await supabase
@@ -404,6 +456,47 @@ export default function EditClassPage() {
       setOnlineLink(row.online_link ?? "");
       setCancellationPolicy(row.cancellation_policy ?? "");
       setRefundPolicySummary(row.refund_policy_summary ?? "");
+      const cutoffHours = row.cancellation_cutoff_hours ?? 24;
+      let nextPolicy: StructuredPolicyValue = {
+        ...defaultPolicyValue(),
+        customerCancellationAllowed: row.customer_cancellation_allowed ?? true,
+        cutoffValue: cutoffHours >= 24 && cutoffHours % 24 === 0 ? cutoffHours / 24 : cutoffHours,
+        cutoffUnit: cutoffHours >= 24 && cutoffHours % 24 === 0 ? "days" : "hours",
+      };
+      const rulesResponse = await fetch(`/api/owner/classes/${id}/refund-rules`).catch(() => null);
+      if (rulesResponse?.ok) {
+        const rulesBody = await rulesResponse.json().catch(() => ({}));
+        const loadedRules = (rulesBody.rules ?? []).map((rule: {
+          id?: string;
+          rule_name?: string;
+          min_hours_before_class?: number;
+          max_hours_before_class?: number | null;
+          refund_type?: "percentage" | "fixed";
+          refund_value?: number;
+          applies_to?: "customer_cancel" | "owner_cancel" | "both";
+          is_active?: boolean;
+        }) =>
+          newRefundRuleDraft({
+            id: rule.id,
+            ruleName: rule.rule_name ?? "Refund rule",
+            minHoursBeforeClass: Number(rule.min_hours_before_class ?? 0),
+            maxHoursBeforeClass: rule.max_hours_before_class ?? null,
+            refundType: rule.refund_type ?? "percentage",
+            refundValue: Number(rule.refund_value ?? 0),
+            appliesTo: rule.applies_to ?? "both",
+            isActive: rule.is_active ?? true,
+          })
+        );
+        if (loadedRules.length > 0) {
+          nextPolicy = { ...nextPolicy, rules: loadedRules };
+        }
+      }
+      setPolicyValue(nextPolicy);
+      if (!row.cancellation_policy || !row.refund_policy_summary) {
+        const summaries = policySummaries(nextPolicy, row.currency ?? currency);
+        if (!row.cancellation_policy) setCancellationPolicy(summaries.cancellationPolicy);
+        if (!row.refund_policy_summary) setRefundPolicySummary(summaries.refundPolicySummary);
+      }
       setStatus(row.status);
       setFeatured(row.featured ?? false);
       setFeatureRequestStatus(row.featured_request_status ?? "none");
@@ -623,6 +716,7 @@ export default function EditClassPage() {
       : featureRequestStatus === "requested"
         ? "none"
         : featureRequestStatus;
+    const generatedPolicySummaries = policySummaries(policyValue, currency);
 
     const primaryStaffId = (selectedStaffIds[0] ?? staffId) || null;
     const displayInstructorName = instructorName.trim() || selectedInstructorNames.join(", ");
@@ -651,8 +745,13 @@ export default function EditClassPage() {
         location: location.trim(),
         venue_details: venueDetails.trim() || null,
         online_link: onlineLink.trim() || null,
-        cancellation_policy: cancellationPolicy.trim() || null,
-        refund_policy_summary: refundPolicySummary.trim() || null,
+        cancellation_policy: cancellationPolicy.trim() || generatedPolicySummaries.cancellationPolicy,
+        refund_policy_summary: refundPolicySummary.trim() || generatedPolicySummaries.refundPolicySummary,
+        customer_cancellation_allowed: policyValue.customerCancellationAllowed,
+        cancellation_cutoff_hours: policyValue.customerCancellationAllowed ? policyCutoffHours(policyValue) : null,
+        cancellation_cutoff_behavior: "block",
+        refund_fallback_owner_cancel: "full_refund",
+        refund_fallback_customer_cancel: policyValue.customerCancellationAllowed ? "manual_review" : "no_refund",
         status: status as ClassStatus,
         staff_commission_percent:
           selectedStaffIds.length > 0 &&
@@ -685,6 +784,8 @@ export default function EditClassPage() {
       setSaving(false);
       return;
     }
+
+    await replaceRefundRules(id, policyValue);
 
     const { error: deleteClassStaffError } = await supabase
       .from("class_staff")
@@ -1244,12 +1345,11 @@ export default function EditClassPage() {
 
               <SectionHeader title="Policies" />
 
-              <Field label="Cancellation policy" name="cancellationPolicy">
-                <textarea value={cancellationPolicy} onChange={(e) => setCancellationPolicy(e.target.value)} rows={2} className={inputClass()} />
-              </Field>
-              <Field label="Refund policy summary" name="refundPolicySummary">
-                <textarea value={refundPolicySummary} onChange={(e) => setRefundPolicySummary(e.target.value)} rows={2} className={inputClass()} />
-              </Field>
+              <StructuredPolicyEditor
+                value={policyValue}
+                onChange={handlePolicyChange}
+                currency={currency}
+              />
 
               <SectionHeader title="Additional expenses" />
               {savedExpenses.length > 0 && (

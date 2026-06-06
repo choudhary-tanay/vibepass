@@ -7,6 +7,7 @@ interface ClassImageTemplateProps {
   artworkVariant?: ClassArtworkVariant;
   imageUrl?: string;
   textColor?: string;
+  backgroundOnly?: boolean;
 }
 
 export type ClassArtworkVariant = "primary" | "alternate";
@@ -249,6 +250,7 @@ export function ClassImageTemplate({
   artworkVariant = "primary",
   imageUrl,
   textColor,
+  backgroundOnly = false,
 }: ClassImageTemplateProps) {
   const template = getClassCategoryTemplate(category);
   const selectedImageUrl =
@@ -279,6 +281,7 @@ export function ClassImageTemplate({
       <div className="absolute inset-0 opacity-75">
         <TemplateMotif motif={template.motif} accent={template.accent} />
       </div>
+      {!backgroundOnly && (
       <div className={`relative flex h-full min-h-44 flex-col justify-between p-5 ${compact ? "min-h-32" : ""}`}>
         <div className="flex items-start justify-between gap-3">
           <span className="rounded-full bg-white/72 px-3 py-1 text-xs font-black uppercase text-slate-950 shadow-sm backdrop-blur">
@@ -297,6 +300,7 @@ export function ClassImageTemplate({
           </p>
         </div>
       </div>
+      )}
     </div>
   );
 }

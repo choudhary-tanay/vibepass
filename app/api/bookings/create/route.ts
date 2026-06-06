@@ -358,6 +358,7 @@ export async function POST(request: Request) {
       businessName: bizDetails.business_name,
       ownerEmail: bizDetails.email,
       amount: totalAmount,
+      currency: clsDetails.currency ?? "INR",
       isPaid: isPaidBooking,
       seatCount: seatsNeeded,
     }).catch((err) => console.error("Email send error:", err));
