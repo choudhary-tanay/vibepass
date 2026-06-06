@@ -67,7 +67,7 @@ export async function GET(
     return Response.json({ error: "template id and businessId are required." }, { status: 400 });
   }
 
-  const access = await requireBusinessPermission(businessId, "classes.edit");
+  const access = await requireBusinessPermission(businessId, "booking_forms.manage");
   if ("response" in access) return access.response;
   const { supabase } = access;
 
@@ -148,7 +148,7 @@ export async function PUT(
     return Response.json({ error: "template id and businessId are required." }, { status: 400 });
   }
 
-  const access = await requireBusinessPermission(businessId, "classes.edit");
+  const access = await requireBusinessPermission(businessId, "booking_forms.manage");
   if ("response" in access) return access.response;
   const { supabase } = access;
 

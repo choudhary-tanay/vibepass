@@ -34,6 +34,7 @@ export default function StaffListPage() {
   // Pending invites: email → invite URL
   const [pendingInvites, setPendingInvites] = useState<Record<string, string>>({});
   const [pendingEmails, setPendingEmails] = useState<Set<string>>(new Set());
+  const [expiredInviteEmails, setExpiredInviteEmails] = useState<Set<string>>(new Set());
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [staffEarnings, setStaffEarnings] = useState<StaffEarningSummary[]>([]);
@@ -57,18 +58,24 @@ export default function StaffListPage() {
       .select("email, token, accepted_at, expires_at")
       .eq("business_id", currentBusiness.id)
       .is("accepted_at", null)
-      .gt("expires_at", new Date().toISOString())
       .then(({ data }) => {
         if (!data) return;
         const appUrl = window.location.origin;
         const urlMap: Record<string, string> = {};
         const emailSet = new Set<string>();
+        const expiredSet = new Set<string>();
+        const now = Date.now();
         data.forEach((inv) => {
-          urlMap[inv.email.toLowerCase()] = `${appUrl}/staff/invite/${inv.token}`;
-          emailSet.add(inv.email.toLowerCase());
+          const email = inv.email.toLowerCase();
+          urlMap[email] = `${appUrl}/staff/invite/${inv.token}`;
+          emailSet.add(email);
+          if (inv.expires_at && new Date(inv.expires_at).getTime() <= now) {
+            expiredSet.add(email);
+          }
         });
         setPendingInvites(urlMap);
         setPendingEmails(emailSet);
+        setExpiredInviteEmails(expiredSet);
       });
     queueMicrotask(() => {
       void loadRevenue();
@@ -86,8 +93,14 @@ export default function StaffListPage() {
     if (res.ok) {
       const d = await res.json();
       const appUrl = window.location.origin;
-      setPendingInvites((prev) => ({ ...prev, [email.toLowerCase()]: d.inviteUrl || `${appUrl}/staff/invite/${d.token}` }));
-      setPendingEmails((prev) => new Set([...prev, email.toLowerCase()]));
+      const key = email.toLowerCase();
+      setPendingInvites((prev) => ({ ...prev, [key]: d.inviteUrl || `${appUrl}/staff/invite/${d.token}` }));
+      setPendingEmails((prev) => new Set([...prev, key]));
+      setExpiredInviteEmails((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
     setGeneratingFor(null);
   }
@@ -172,9 +185,9 @@ export default function StaffListPage() {
   );
   const activeStaff = businessStaff.filter((s) => s.status === "active");
   const inactiveStaff = businessStaff.filter((s) => s.status === "inactive");
-  // "Link Shared" = active staff who have a pending (unaccepted) invite
+  // Portal Access = active staff who have not accepted portal access yet.
   const pendingStaff = activeStaff.filter(
-    (s) => s.email && pendingEmails.has(s.email.toLowerCase())
+    (s) => s.email && (!s.userId || pendingEmails.has(s.email.toLowerCase()))
   );
 
   const tabCounts: Record<Tab, number> = {
@@ -209,7 +222,7 @@ export default function StaffListPage() {
   const TABS: { key: Tab; label: string }[] = [
     { key: "active", label: "Active" },
     { key: "inactive", label: "Not Active" },
-    { key: "pending", label: "Link Shared" },
+    { key: "pending", label: "Portal Access" },
   ];
 
   const tabStaff =
@@ -362,11 +375,11 @@ export default function StaffListPage() {
           />
         </div>
 
-        {/* Tab: Link Shared — banner */}
+        {/* Tab: Portal Access — banner */}
         {tab === "pending" && pendingStaff.length > 0 && (
           <div className="mb-4 rounded-2xl bg-amber-50 px-5 py-4 ring-1 ring-amber-200">
-            <p className="text-sm font-bold text-amber-900">These staff members have received an invite link but haven&apos;t set up their account yet.</p>
-            <p className="mt-0.5 text-xs text-amber-700">Click &quot;Copy link&quot; to re-share. The link expires 7 days after it was generated.</p>
+            <p className="text-sm font-bold text-amber-900">These staff members have not set up portal access yet.</p>
+            <p className="mt-0.5 text-xs text-amber-700">Generate, copy, or renew their invite link. Staff disappear from this tab only after they accept the invite and set a password.</p>
           </div>
         )}
 
@@ -388,7 +401,7 @@ export default function StaffListPage() {
             {tab === "pending" && (
               <>
                 <p className="text-lg font-black text-slate-700">No pending invites</p>
-                <p className="mt-1 text-sm text-slate-500">All staff have set up their portal access, or no invites have been sent yet.</p>
+                <p className="mt-1 text-sm text-slate-500">All staff with emails have set up their portal access.</p>
               </>
             )}
           </div>
@@ -414,7 +427,10 @@ export default function StaffListPage() {
               <tbody className="divide-y divide-slate-50">
                 {displayStaff.map((member) => {
                   const totals = earningsFor(member.id);
-                  const isPending = member.email && pendingEmails.has(member.email.toLowerCase());
+                  const isPending = Boolean(member.email && pendingEmails.has(member.email.toLowerCase()));
+                  const inviteExpired = member.email ? expiredInviteEmails.has(member.email.toLowerCase()) : false;
+                  const needsPortalInvite = Boolean(member.email && !member.userId);
+                  const canShareInvite = Boolean(member.email && (needsPortalInvite || isPending));
                   return (
                     <tr key={member.id} className={`hover:bg-slate-50 ${tab === "inactive" ? "opacity-60" : ""}`}>
                       <td className="px-4 py-3">
@@ -440,11 +456,19 @@ export default function StaffListPage() {
                         <span className={`rounded-full px-2.5 py-1 text-xs font-black capitalize ${
                           tab === "pending" || isPending
                             ? "bg-amber-100 text-amber-700"
+                            : needsPortalInvite
+                              ? "bg-indigo-100 text-indigo-700"
                             : member.status === "active"
                               ? "bg-emerald-100 text-emerald-700"
                               : "bg-slate-100 text-slate-500"
                         }`}>
-                          {tab === "pending" || isPending ? "invited" : member.status}
+                          {inviteExpired
+                            ? "invite expired"
+                            : isPending
+                              ? "invited"
+                              : needsPortalInvite
+                                ? "needs invite"
+                                : member.status}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -452,8 +476,16 @@ export default function StaffListPage() {
                           <Link href={`/owner/staff/${member.id}`} className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100">
                             View
                           </Link>
-                          {member.email && tab === "pending" && (
-                            pendingInvites[member.email.toLowerCase()] ? (
+                          {member.email && canShareInvite && (
+                            inviteExpired ? (
+                              <button
+                                onClick={() => generateInvite(member.email, member.role)}
+                                disabled={generatingFor === member.email}
+                                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                              >
+                                {generatingFor === member.email ? "Renewing..." : "Renew link"}
+                              </button>
+                            ) : pendingInvites[member.email.toLowerCase()] ? (
                               <button
                                 onClick={() => copyInvite(member.email)}
                                 className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${

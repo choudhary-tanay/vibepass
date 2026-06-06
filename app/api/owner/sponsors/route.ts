@@ -10,6 +10,12 @@ function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function withoutKeys<T extends Record<string, unknown>>(payload: T, keys: string[]) {
+  const next = { ...payload };
+  for (const key of keys) delete next[key];
+  return next;
+}
+
 async function resolveBusinessId(request: Request) {
   const base = await requireAuthenticatedServiceClient();
   if ("response" in base) return base;
@@ -74,35 +80,62 @@ export async function POST(request: Request) {
 
   const sponsorName = cleanString(body?.sponsorName);
   if (!sponsorName) return Response.json({ error: "Sponsor name is required." }, { status: 400 });
+  const sponsorEmail = cleanString(body?.email).toLowerCase();
 
-  const { data, error } = await access.supabase
+  const { data: existingSponsors, error: existingSponsorError } = await access.supabase
     .from("sponsors")
-    .insert({
-      business_id: businessId,
-      sponsor_name: sponsorName,
-      contact_person: cleanString(body?.contactPerson) || null,
-      email: cleanString(body?.email) || null,
-      phone: cleanString(body?.phone) || null,
-      website: cleanString(body?.website) || null,
-      logo_url: cleanString(body?.logoUrl) || null,
-      description: cleanString(body?.description) || null,
-      category: cleanString(body?.category) || null,
-      notes: cleanString(body?.notes) || null,
-      status: cleanString(body?.status) || "active",
-      created_by: access.authUserId,
-    })
+    .select("*")
+    .eq("business_id", businessId);
+  if (existingSponsorError && !isAccessSchemaMissing(existingSponsorError)) {
+    return Response.json({ error: existingSponsorError.message }, { status: 500 });
+  }
+  const existingSponsor = (existingSponsors ?? []).find((sponsor) => {
+    const existingEmail = cleanString(sponsor.email).toLowerCase();
+    const existingName = cleanString(sponsor.sponsor_name).toLowerCase();
+    return (sponsorEmail && existingEmail === sponsorEmail) || existingName === sponsorName.toLowerCase();
+  });
+  if (existingSponsor) {
+    return Response.json({ ok: true, sponsor: existingSponsor });
+  }
+
+  const sponsorPayload = {
+    business_id: businessId,
+    sponsor_name: sponsorName,
+    contact_person: cleanString(body?.contactPerson) || null,
+    email: sponsorEmail || null,
+    phone: cleanString(body?.phone) || null,
+    website: cleanString(body?.website) || null,
+    logo_url: cleanString(body?.logoUrl) || null,
+    cover_image_url: cleanString(body?.coverImageUrl) || null,
+    description: cleanString(body?.description) || null,
+    category: cleanString(body?.category) || null,
+    notes: cleanString(body?.notes) || null,
+    status: cleanString(body?.status) || "active",
+    created_by: access.authUserId,
+  };
+
+  let result: { data: any; error: any } = await access.supabase
+    .from("sponsors")
+    .insert(sponsorPayload)
     .select("*")
     .single();
+  if (result.error && isAccessSchemaMissing(result.error)) {
+    result = await access.supabase
+      .from("sponsors")
+      .insert(withoutKeys(sponsorPayload, ["cover_image_url"]))
+      .select("*")
+      .single();
+  }
 
-  if (error && isAccessSchemaMissing(error)) {
+  if (result.error && isAccessSchemaMissing(result.error)) {
     return Response.json(
       { error: "Run supabase/nf1b-operations-modules.sql before using sponsors." },
       { status: 501 }
     );
   }
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (result.error) return Response.json({ error: result.error.message }, { status: 500 });
 
-  return Response.json({ ok: true, sponsor: data });
+  return Response.json({ ok: true, sponsor: result.data });
 }
 
 export async function PATCH(request: Request) {
@@ -122,29 +155,66 @@ export async function PATCH(request: Request) {
       .maybeSingle();
     if (!cls) return Response.json({ error: "Class not found for this business." }, { status: 404 });
 
-    const { data, error } = await access.supabase
-      .from("class_sponsors")
-      .insert({
-        business_id: businessId,
-        class_id: classId,
-        sponsor_id: sponsorId || null,
-        sponsor_amount: Number.isFinite(Number(body?.sponsorAmount)) ? Number(body.sponsorAmount) : 0,
-        sponsor_currency: cleanString(body?.sponsorCurrency) || "INR",
-        payment_status: cleanString(body?.paymentStatus) || "expected",
-        payment_date: cleanString(body?.paymentDate) || null,
-        reference: cleanString(body?.reference) || null,
-        note: cleanString(body?.note) || null,
-        show_sponsor_publicly: Boolean(body?.showSponsorPublicly),
-        sponsor_display_name: cleanString(body?.sponsorDisplayName) || null,
-        sponsor_logo_url: cleanString(body?.sponsorLogoUrl) || null,
-        sponsor_message: cleanString(body?.sponsorMessage) || null,
-      })
-      .select("*")
-      .single();
-    if (error) return Response.json({ error: error.message }, { status: 500 });
+    const classSponsorPayload = {
+      business_id: businessId,
+      class_id: classId,
+      sponsor_id: sponsorId || null,
+      sponsor_amount: Number.isFinite(Number(body?.sponsorAmount)) ? Number(body.sponsorAmount) : 0,
+      sponsor_currency: cleanString(body?.sponsorCurrency) || "INR",
+      payment_status: cleanString(body?.paymentStatus) || "expected",
+      payment_date: cleanString(body?.paymentDate) || null,
+      reference: cleanString(body?.reference) || null,
+      note: cleanString(body?.note) || null,
+      show_sponsor_publicly: Boolean(body?.showSponsorPublicly),
+      sponsor_display_name: cleanString(body?.sponsorDisplayName) || null,
+      sponsor_logo_url: cleanString(body?.sponsorLogoUrl) || null,
+      sponsor_cover_image_url: cleanString(body?.sponsorCoverImageUrl) || null,
+      sponsor_message: cleanString(body?.sponsorMessage) || null,
+    };
+
+    const { data: existingAssignment } = sponsorId
+      ? await access.supabase
+          .from("class_sponsors")
+          .select("id")
+          .eq("class_id", classId)
+          .eq("sponsor_id", sponsorId)
+          .maybeSingle()
+      : { data: null };
+
+    let result: { data: any; error: any };
+    if (existingAssignment?.id) {
+      result = await access.supabase
+        .from("class_sponsors")
+        .update(classSponsorPayload)
+        .eq("id", existingAssignment.id)
+        .select("*")
+        .single();
+      if (result.error && isAccessSchemaMissing(result.error)) {
+        result = await access.supabase
+          .from("class_sponsors")
+          .update(withoutKeys(classSponsorPayload, ["sponsor_cover_image_url"]))
+          .eq("id", existingAssignment.id)
+          .select("*")
+          .single();
+      }
+    } else {
+      result = await access.supabase
+        .from("class_sponsors")
+        .insert(classSponsorPayload)
+        .select("*")
+        .single();
+      if (result.error && isAccessSchemaMissing(result.error)) {
+        result = await access.supabase
+          .from("class_sponsors")
+          .insert(withoutKeys(classSponsorPayload, ["sponsor_cover_image_url"]))
+          .select("*")
+          .single();
+      }
+    }
+    if (result.error) return Response.json({ error: result.error.message }, { status: 500 });
     await recalculateClassFinancialSnapshot(access.supabase, classId)
       .catch((snapshotError) => console.error("Sponsor snapshot recalculation error:", snapshotError));
-    return Response.json({ ok: true, classSponsor: data });
+    return Response.json({ ok: true, classSponsor: result.data });
   }
 
   const sponsorId = cleanString(body?.sponsorId);
@@ -157,16 +227,28 @@ export async function PATCH(request: Request) {
   if (body?.phone !== undefined) patch.phone = cleanString(body.phone) || null;
   if (body?.website !== undefined) patch.website = cleanString(body.website) || null;
   if (body?.logoUrl !== undefined) patch.logo_url = cleanString(body.logoUrl) || null;
+  if (body?.coverImageUrl !== undefined) patch.cover_image_url = cleanString(body.coverImageUrl) || null;
   if (body?.description !== undefined) patch.description = cleanString(body.description) || null;
   if (body?.category !== undefined) patch.category = cleanString(body.category) || null;
   if (body?.notes !== undefined) patch.notes = cleanString(body.notes) || null;
   if (body?.status !== undefined) patch.status = cleanString(body.status) || "active";
 
-  const { error } = await access.supabase
+  let result: { data: any; error: any } = await access.supabase
     .from("sponsors")
     .update(patch)
     .eq("id", sponsorId)
     .eq("business_id", businessId);
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (result.error && patch.cover_image_url !== undefined && isAccessSchemaMissing(result.error)) {
+    const fallbackPatch = withoutKeys(patch, ["cover_image_url"]);
+    if (Object.keys(fallbackPatch).length === 0) {
+      return Response.json({ ok: true });
+    }
+    result = await access.supabase
+      .from("sponsors")
+      .update(fallbackPatch)
+      .eq("id", sponsorId)
+      .eq("business_id", businessId);
+  }
+  if (result.error) return Response.json({ error: result.error.message }, { status: 500 });
   return Response.json({ ok: true });
 }

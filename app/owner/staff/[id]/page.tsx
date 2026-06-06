@@ -70,6 +70,11 @@ export default function StaffDetailPage() {
   const [deactivateAction, setDeactivateAction] = useState<"reassign" | "cancel" | "none">("none");
   const [reassignToId, setReassignToId] = useState<string>("");
   const [deactivateResult, setDeactivateResult] = useState<string | null>(null);
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [inviteExpired, setInviteExpired] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteError, setInviteError] = useState("");
 
   // Load custom roles for this business
   useEffect(() => {
@@ -113,6 +118,41 @@ export default function StaffDetailPage() {
       });
     }
   }, [member]);
+
+  useEffect(() => {
+    if (!member?.email || member.userId) {
+      setInviteUrl("");
+      setInviteExpired(false);
+      setInviteError("");
+      return;
+    }
+
+    let active = true;
+    queueMicrotask(async () => {
+      const { data } = await supabase
+        .from("staff_invites")
+        .select("token, expires_at")
+        .eq("business_id", member.businessId)
+        .eq("email", member.email.toLowerCase())
+        .is("accepted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!active) return;
+      const invite = data?.[0];
+      if (!invite?.token) {
+        setInviteUrl("");
+        setInviteExpired(false);
+        return;
+      }
+      setInviteUrl(`${window.location.origin}/staff/invite/${invite.token}`);
+      setInviteExpired(Boolean(invite.expires_at && new Date(invite.expires_at).getTime() <= Date.now()));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [member?.businessId, member?.email, member?.userId]);
 
   if (loading) {
     return (
@@ -270,6 +310,38 @@ export default function StaffDetailPage() {
     setDeactivating(false);
   }
 
+  async function generateInvite() {
+    if (!member?.email) return;
+    setInviteLoading(true);
+    setInviteError("");
+    const response = await fetch("/api/owner/staff/invite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: member.email,
+        role: member.role,
+        userGroup: member.userGroup,
+        businessId: member.businessId,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    setInviteLoading(false);
+    if (!response.ok) {
+      setInviteError(data.error ?? "Could not generate invite link.");
+      return;
+    }
+    const appUrl = window.location.origin;
+    setInviteUrl(data.inviteUrl || `${appUrl}/staff/invite/${data.token}`);
+    setInviteExpired(false);
+  }
+
+  async function copyInvite() {
+    if (!inviteUrl) return;
+    await navigator.clipboard.writeText(inviteUrl);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
       <div className="mx-auto max-w-2xl space-y-6">
@@ -287,6 +359,51 @@ export default function StaffDetailPage() {
             </span>
           </div>
         </div>
+
+        {member.email && !member.userId && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-black text-amber-950">Portal invite needed</p>
+                <p className="mt-1 text-sm font-semibold text-amber-800">
+                  {member.name} has not set a password or linked a staff portal account yet.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={generateInvite}
+                disabled={inviteLoading}
+                className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {inviteLoading ? "Generating..." : inviteExpired ? "Renew link" : inviteUrl ? "Refresh link" : "Get link"}
+              </button>
+            </div>
+            {inviteUrl && !inviteExpired && (
+              <div className="mt-4 flex flex-col gap-2 rounded-xl bg-white p-3 ring-1 ring-amber-100 sm:flex-row sm:items-center">
+                <code className="min-w-0 flex-1 overflow-auto break-all text-xs text-slate-700">{inviteUrl}</code>
+                <button
+                  type="button"
+                  onClick={copyInvite}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-black ${
+                    inviteCopied ? "bg-green-500 text-white" : "bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                  }`}
+                >
+                  {inviteCopied ? "Copied" : "Copy link"}
+                </button>
+              </div>
+            )}
+            {inviteExpired && (
+              <p className="mt-3 text-xs font-bold text-amber-800">
+                The last invite expired. Renew it to create a working setup link.
+              </p>
+            )}
+            {inviteError && (
+              <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+                {inviteError}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Edit form */}
         <form onSubmit={handleSave}>

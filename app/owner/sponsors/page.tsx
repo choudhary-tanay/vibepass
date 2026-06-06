@@ -14,6 +14,7 @@ interface SponsorRow {
   phone?: string | null;
   website?: string | null;
   logo_url?: string | null;
+  cover_image_url?: string | null;
   description?: string | null;
   category?: string | null;
   notes?: string | null;
@@ -30,6 +31,7 @@ interface ClassSponsorRow {
   show_sponsor_publicly: boolean;
   sponsor_display_name?: string | null;
   sponsor_logo_url?: string | null;
+  sponsor_cover_image_url?: string | null;
   sponsor_message?: string | null;
   sponsor_status?: string | null;
   sponsor_refund_amount?: number | null;
@@ -45,6 +47,7 @@ const sponsorFormInitial = {
   phone: "",
   website: "",
   logoUrl: "",
+  coverImageUrl: "",
   description: "",
   category: "",
   notes: "",
@@ -59,6 +62,7 @@ const attachFormInitial = {
   showSponsorPublicly: true,
   sponsorDisplayName: "",
   sponsorLogoUrl: "",
+  sponsorCoverImageUrl: "",
   sponsorMessage: "",
   reference: "",
   note: "",
@@ -155,6 +159,7 @@ export default function OwnerSponsorsPage() {
       sponsorId,
       sponsorDisplayName: sponsor?.sponsor_name ?? prev.sponsorDisplayName,
       sponsorLogoUrl: sponsor?.logo_url ?? prev.sponsorLogoUrl,
+      sponsorCoverImageUrl: sponsor?.cover_image_url ?? prev.sponsorCoverImageUrl,
     }));
   }
 
@@ -190,6 +195,7 @@ export default function OwnerSponsorsPage() {
       phone: sponsor.phone ?? "",
       website: sponsor.website ?? "",
       logoUrl: sponsor.logo_url ?? "",
+      coverImageUrl: sponsor.cover_image_url ?? "",
       description: sponsor.description ?? "",
       category: sponsor.category ?? "",
       notes: sponsor.notes ?? "",
@@ -310,6 +316,12 @@ export default function OwnerSponsorsPage() {
 
         {selectedSponsor && (
           <div className="mb-5 rounded-2xl bg-white p-5 shadow-sm">
+            {selectedSponsor.cover_image_url && (
+              <div
+                className="mb-4 h-36 overflow-hidden rounded-2xl bg-cover bg-center"
+                style={{ backgroundImage: `url(${selectedSponsor.cover_image_url})` }}
+              />
+            )}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-50 text-sm font-black text-indigo-700">
@@ -371,7 +383,10 @@ export default function OwnerSponsorsPage() {
                   <input value={sponsorForm.phone} onChange={(e) => setSponsorForm((p) => ({ ...p, phone: e.target.value }))} placeholder="Phone" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 </div>
                 <input value={sponsorForm.website} onChange={(e) => setSponsorForm((p) => ({ ...p, website: e.target.value }))} placeholder="Website" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
-                <input value={sponsorForm.logoUrl} onChange={(e) => setSponsorForm((p) => ({ ...p, logoUrl: e.target.value }))} placeholder="Logo URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input value={sponsorForm.logoUrl} onChange={(e) => setSponsorForm((p) => ({ ...p, logoUrl: e.target.value }))} placeholder="Business logo URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                  <input value={sponsorForm.coverImageUrl} onChange={(e) => setSponsorForm((p) => ({ ...p, coverImageUrl: e.target.value }))} placeholder="Business cover image URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                </div>
                 <textarea value={sponsorForm.description} onChange={(e) => setSponsorForm((p) => ({ ...p, description: e.target.value }))} rows={3} placeholder="Description" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <textarea value={sponsorForm.notes} onChange={(e) => setSponsorForm((p) => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Internal notes" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <button disabled={saving} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50">
@@ -411,7 +426,10 @@ export default function OwnerSponsorsPage() {
                   <input type="checkbox" checked={attachForm.showSponsorPublicly} onChange={(e) => setAttachForm((p) => ({ ...p, showSponsorPublicly: e.target.checked }))} />
                 </label>
                 <input value={attachForm.sponsorDisplayName} onChange={(e) => setAttachForm((p) => ({ ...p, sponsorDisplayName: e.target.value }))} placeholder="Public display name" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
-                <input value={attachForm.sponsorLogoUrl} onChange={(e) => setAttachForm((p) => ({ ...p, sponsorLogoUrl: e.target.value }))} placeholder="Public logo URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input value={attachForm.sponsorLogoUrl} onChange={(e) => setAttachForm((p) => ({ ...p, sponsorLogoUrl: e.target.value }))} placeholder="Public logo URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                  <input value={attachForm.sponsorCoverImageUrl} onChange={(e) => setAttachForm((p) => ({ ...p, sponsorCoverImageUrl: e.target.value }))} placeholder="Public cover image URL" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
+                </div>
                 <textarea value={attachForm.sponsorMessage} onChange={(e) => setAttachForm((p) => ({ ...p, sponsorMessage: e.target.value }))} rows={2} placeholder="Public sponsor message" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <input value={attachForm.reference} onChange={(e) => setAttachForm((p) => ({ ...p, reference: e.target.value }))} placeholder="Internal payment/reference" className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400" />
                 <button disabled={saving || sponsors.length === 0 || businessClasses.length === 0} className="rounded-full bg-indigo-600 px-5 py-3 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50">

@@ -177,7 +177,12 @@ export const CLASS_CATEGORY_TEMPLATES: Record<string, ClassCategoryTemplate> = {
 };
 
 export function getClassCategoryTemplate(category = "Other") {
-  return CLASS_CATEGORY_TEMPLATES[category] ?? CLASS_CATEGORY_TEMPLATES.Other;
+  const direct = CLASS_CATEGORY_TEMPLATES[category];
+  if (direct) return direct;
+  const normalized = Object.keys(CLASS_CATEGORY_TEMPLATES).find(
+    (key) => key.toLowerCase() === category.toLowerCase()
+  );
+  return normalized ? CLASS_CATEGORY_TEMPLATES[normalized] : CLASS_CATEGORY_TEMPLATES.Other;
 }
 
 function TemplateMotif({ motif, accent }: { motif: ClassCategoryTemplate["motif"]; accent: string }) {

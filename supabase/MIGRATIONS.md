@@ -54,6 +54,9 @@ Each file builds on the one before it — running them out of order will cause e
 | 30 | `nf0i-cancellation-backfill.sql` | Repairs old cancelled class data: cancels bookings, creates refund records (100% default, needs_review=true), creates cancellation records, marks snapshot cancellation_status | Yes (run after #29, then POST /api/finance/recalculate/business/:id) |
 | 31 | `nf1d-customer-attendance-forms-notifications.sql` | Adds `booking_reference`, `guest_count`, `booking_source` to bookings; creates `booking_attendees`, `customer_profiles`, `customer_identity_links`, `customer_favorites`, `booking_form_templates`, `booking_form_fields`, `class_booking_forms`, `booking_form_responses` tables; backfills booking references and attendees for existing data | Yes |
 | 32 | `nf1e-end-to-end-customer-ops-repair.sql` | Adds `customer_notes`; repairs old booking references/guest counts; backfills booking attendees, customer profiles, identity links, and customer profile stats from existing bookings | Yes |
+| 33 | `nf1f-full-portal-smoke-test-repair.sql` | Full portal staging smoke-test repair helpers and data fixes | Yes |
+| 34 | `nf1g-sponsor-branding-marketplace.sql` | Adds sponsor cover image fields for marketplace card branding | Yes |
+| 35 | `nf1h-class-edit-duplicate-sponsor-bookings-fix.sql` | Persists class artwork choices, dedupes class sponsors, and aligns class expense categories with the class builder | Yes |
 
 Note: `profiles.preferred_currency` (from migration #23) remains available for admin display preferences. Owner Studio and Staff Portal financial values now use business operating currency only.
 

@@ -21,6 +21,7 @@ export default function ChangePasswordPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!email.trim()) { setError("Please enter your email address."); return; }
     if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setError("New passwords don't match."); return; }
     if (!oldPassword) { setError("Please enter your current password."); return; }
@@ -29,7 +30,7 @@ export default function ChangePasswordPage() {
 
     // Verify current password
     const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password: oldPassword,
     });
 
@@ -87,6 +88,19 @@ export default function ChangePasswordPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Email address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Current password
               </label>
               <input
@@ -96,10 +110,6 @@ export default function ChangePasswordPage() {
                 placeholder="Your current password"
                 className={inputClass}
               />
-              <p className="mt-1 text-xs text-slate-400">
-                If you joined via an invite link and haven&apos;t set a password, try{" "}
-                <code className="rounded bg-slate-100 px-1 py-0.5 text-slate-600">admin123</code>
-              </p>
             </div>
 
             <div>
@@ -143,9 +153,9 @@ export default function ChangePasswordPage() {
         </div>
 
         <p className="mt-4 text-center text-xs text-slate-400">
-          Forgot your password entirely?{" "}
+          Need portal access first?{" "}
           <Link href="/auth/login" className="text-indigo-600 hover:underline">
-            Sign in with a different method
+            Return to login
           </Link>
         </p>
       </div>

@@ -16,7 +16,7 @@ export async function POST(
     return Response.json({ error: "class id, businessId, and templateId are required." }, { status: 400 });
   }
 
-  const access = await requireBusinessPermission(businessId, "classes.edit");
+  const access = await requireBusinessPermission(businessId, "booking_forms.manage");
   if ("response" in access) return access.response;
 
   const { data: cls, error: classError } = await access.supabase
@@ -58,7 +58,7 @@ export async function DELETE(
     return Response.json({ error: "class id and businessId are required." }, { status: 400 });
   }
 
-  const access = await requireBusinessPermission(businessId, "classes.edit");
+  const access = await requireBusinessPermission(businessId, "booking_forms.manage");
   if ("response" in access) return access.response;
 
   const { error } = await access.supabase

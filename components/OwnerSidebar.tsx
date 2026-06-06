@@ -27,14 +27,14 @@ export function OwnerSidebar() {
 
   return (
     <aside className="owner-sidebar">
-      <div className="flex items-center justify-between gap-3">
-        <Link href="/owner/dashboard" className="min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <Link href="/owner/dashboard" className="min-w-0 flex-1">
           {currentBusiness?.logoUrl ? (
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50">
                 <img src={currentBusiness.logoUrl} alt="" className="h-full w-full object-cover" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-black text-slate-950 dark:text-white">
                   {brandName}
                 </p>
@@ -47,9 +47,9 @@ export function OwnerSidebar() {
             <VibePassLogo portalLabel="Owner Studio" portalColor="text-indigo-600 dark:text-indigo-300" />
           )}
         </Link>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <NotificationBell />
-          <ThemeToggle />
+          <ThemeToggle compact />
         </div>
       </div>
 

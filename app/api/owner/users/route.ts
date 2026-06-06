@@ -1,4 +1,5 @@
 import {
+  BUSINESS_PERMISSION_DEFINITIONS,
   isAccessSchemaMissing,
   mapBusinessRole,
   mapBusinessUser,
@@ -93,8 +94,8 @@ export async function GET(request: Request) {
   }
   if (schemaError) return Response.json({ error: schemaError.message }, { status: 500 });
 
-  const roles = (roleRows.data ?? []) as Record<string, unknown>[];
-  const roleIds = roles.map((role) => String(role.id));
+  const allRoles = (roleRows.data ?? []) as Record<string, unknown>[];
+  const roleIds = allRoles.map((role) => String(role.id));
   const rolePermissions =
     roleIds.length > 0
       ? await resolved.supabase
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
   });
 
   const roleById = new Map(
-    roles.map((role) => [
+    allRoles.map((role) => [
       String(role.id),
       mapBusinessRole({
         ...role,
@@ -126,13 +127,30 @@ export async function GET(request: Request) {
       }),
     ])
   );
+  const displayRolesByKey = new Map<string, ReturnType<typeof mapBusinessRole>>();
+  for (const role of roleById.values()) {
+    const current = displayRolesByKey.get(role.roleKey);
+    if (!current || role.businessId === resolved.businessId) {
+      displayRolesByKey.set(role.roleKey, role);
+    }
+  }
+
+  const permissionsByKey = new Map(
+    BUSINESS_PERMISSION_DEFINITIONS.map((permission) => [permission.key, permission])
+  );
+  ((permissionRows.data ?? []) as Record<string, unknown>[]).forEach((row) => {
+    const permission = mapPermissionDefinition(row);
+    permissionsByKey.set(permission.key, permission);
+  });
 
   return Response.json({
     businessId: resolved.businessId,
-    permissions: ((permissionRows.data ?? []) as Record<string, unknown>[]).map(
-      mapPermissionDefinition
+    permissions: [...permissionsByKey.values()].sort((a, b) =>
+      a.groupName === b.groupName
+        ? a.label.localeCompare(b.label)
+        : a.groupName.localeCompare(b.groupName)
     ),
-    roles: [...roleById.values()],
+    roles: [...displayRolesByKey.values()],
     users: ((userRows.data ?? []) as Record<string, unknown>[]).map((row) =>
       mapBusinessUser({
         ...row,

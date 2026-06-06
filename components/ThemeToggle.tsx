@@ -7,7 +7,7 @@ type Theme = "light" | "dark";
 const themeStorageKey = "vibepass-theme";
 const legacyThemeStorageKey = "classvibe-theme";
 
-export function ThemeToggle() {
+export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
@@ -34,11 +34,16 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="inline-flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+      className={`inline-flex h-10 items-center justify-center gap-2 border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 ${
+        compact ? "w-10 rounded-2xl px-0" : "rounded-full px-3"
+      }`}
       aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
     >
       <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
-      <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+      {!compact && (
+        <span className="hidden sm:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+      )}
     </button>
   );
 }

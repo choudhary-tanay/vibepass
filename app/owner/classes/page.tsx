@@ -1045,7 +1045,6 @@ export default function OwnerClassesPage() {
     classes,
     loading,
     currentBusiness,
-    addClass,
     reactivateClass,
   } = useAppStore();
   const bizCurrency = getOperatingCurrency(currentBusiness);
@@ -1283,36 +1282,15 @@ export default function OwnerClassesPage() {
   async function handleDuplicate(cls: (typeof ownerClasses)[0]) {
     if (!currentBusiness) return;
     setActionLoading(cls.id + "-dup");
-    await addClass({
-      businessId: currentBusiness.id,
-      title: `${cls.title} (Copy)`,
-      description: cls.description,
-      category: cls.category,
-      instructorName: cls.instructorName,
-      staffId: cls.staffId ?? null,
-      date: cls.date,
-      startTime: cls.startTime,
-      endTime: cls.endTime,
-      price: cls.price,
-      capacity: cls.capacity,
-      location: cls.location,
-      status: "draft",
-      tagline: cls.tagline,
-      whatToExpect: cls.whatToExpect,
-      whoThisIsFor: cls.whoThisIsFor,
-      whatToBring: cls.whatToBring,
-      difficultyLevel: cls.difficultyLevel,
-      tags: cls.tags,
-      imageUrl: cls.imageUrl,
-      locationType: cls.locationType ?? "in_person",
-      venueDetails: cls.venueDetails,
-      onlineLink: cls.onlineLink,
-      cancellationPolicy: cls.cancellationPolicy,
-      refundPolicySummary: cls.refundPolicySummary,
-      ageSuitability: cls.ageSuitability,
-      featured: false,
-    });
+    const response = await fetch(`/api/owner/classes/${cls.id}/duplicate`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
     setActionLoading(null);
+    if (!response.ok) {
+      setCancelNotice(body.error ?? "Failed to duplicate class.");
+      return;
+    }
+    setCancelNotice("Class duplicated as a draft with setup data copied.");
+    window.location.reload();
   }
 
   // ── Snapshot-only finance helper ──

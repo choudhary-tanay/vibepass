@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Class, Staff } from "@/types";
 import { formatDate, formatTime } from "@/lib/utils";
-import { ClassImageTemplate } from "@/components/ClassImageTemplate";
+import { ClassImageTemplate, getClassCategoryTemplate } from "@/components/ClassImageTemplate";
 
 type FeaturedInstructor = Pick<Staff, "id" | "name"> &
   Partial<Pick<Staff, "role" | "imageUrl" | "publicProfileVisible">>;
@@ -130,27 +130,29 @@ export function HomeFeaturedCarousel({
 
   const activeInstructors = instructorsByClassId[activeClass.id] ?? [];
   const seatsLeft = Math.max(0, activeClass.capacity - activeClass.bookedCount);
+  const activeArtwork = getClassCategoryTemplate(activeClass.category);
+  const fallbackArtworkUrl =
+    activeClass.artworkVariant === "alternate"
+      ? activeArtwork.alternateImageUrl ?? activeArtwork.imageUrl ?? "/art/vibepass-marketplace-hero.png"
+      : activeArtwork.imageUrl ?? activeArtwork.alternateImageUrl ?? "/art/vibepass-marketplace-hero.png";
+  const activeImageUrl = activeClass.imageUrl || fallbackArtworkUrl;
 
   return (
     <div className="overflow-hidden rounded-[1.75rem] bg-white p-3 shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80 dark:bg-slate-950 dark:ring-slate-800">
       <div className="relative min-h-[25rem] overflow-hidden rounded-[1.25rem] bg-slate-950 sm:min-h-[26rem]">
         <ClassImageTemplate
-          key={`fallback-${activeClass.id}`}
+          key={`featured-art-${activeClass.id}`}
           title={activeClass.title}
           category={activeClass.category}
           instructorName={activeClass.instructorName}
-          className="animate-slide-in absolute inset-0 h-full w-full rounded-none"
+          className="animate-slide-in pointer-events-none absolute inset-0 h-full w-full rounded-none"
           backgroundOnly
+          artworkVariant={activeClass.artworkVariant}
+          imageUrl={activeImageUrl}
+          textColor={activeClass.artworkTextColor}
         />
-        {activeClass.imageUrl && (
-          <div
-            key={activeClass.id}
-            className="animate-slide-in absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${activeClass.imageUrl})` }}
-          />
-        )}
         {/* Bottom gradient — keeps content text readable */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/88 via-slate-950/22 to-slate-950/5" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/34 to-slate-950/8" />
         {/* Top gradient — keeps badges readable over any image content */}
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/55 to-transparent" />
 

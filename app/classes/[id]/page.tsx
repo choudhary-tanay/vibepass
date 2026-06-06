@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
 import { formatCurrency } from "@/lib/currency";
-import { ClassImageTemplate } from "@/components/ClassImageTemplate";
+import { ClassImageTemplate, getClassCategoryTemplate } from "@/components/ClassImageTemplate";
 import { ReportButton } from "@/components/ReportButton";
 import type { Staff } from "@/types";
 
@@ -21,6 +21,7 @@ interface PublicSponsor {
   id: string;
   displayName: string;
   logoUrl?: string | null;
+  coverImageUrl?: string | null;
   message?: string | null;
 }
 
@@ -245,6 +246,12 @@ export default function ClassDetailPage() {
 
   const showInstructor = instructors.length > 0 || !!instructor || !!cls.instructorName;
   const priceLabel = cls.price === 0 ? "Free" : formatCurrency(cls.price, cls.currency ?? "INR");
+  const classArtwork = getClassCategoryTemplate(cls.category);
+  const fallbackArtworkUrl =
+    cls.artworkVariant === "alternate"
+      ? classArtwork.alternateImageUrl ?? classArtwork.imageUrl ?? "/art/vibepass-marketplace-hero.png"
+      : classArtwork.imageUrl ?? classArtwork.alternateImageUrl ?? "/art/vibepass-marketplace-hero.png";
+  const heroImageUrl = cls.imageUrl || fallbackArtworkUrl;
 
   return (
     <main className="min-h-screen bg-white px-4 py-7 sm:px-6">
@@ -259,13 +266,13 @@ export default function ClassDetailPage() {
                 title={cls.title}
                 category={cls.category}
                 instructorName={cls.instructorName}
-                className="absolute inset-0 h-full w-full rounded-none"
+                className="pointer-events-none absolute inset-0 h-full w-full rounded-none"
                 backgroundOnly
+                imageUrl={heroImageUrl}
+                artworkVariant={cls.artworkVariant}
+                textColor={cls.artworkTextColor}
               />
-              {cls.imageUrl && (
-                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/74 via-black/22 to-black/5" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/76 via-black/26 to-black/8" />
               <div className="absolute left-5 top-5 flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-violet-600 px-4 py-2 text-xs font-black uppercase text-white shadow-sm">
                   {cls.category}
@@ -399,7 +406,19 @@ export default function ClassDetailPage() {
                 <p className="text-xs font-black uppercase tracking-wide text-amber-600">Sponsored by</p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {publicSponsors.map((sponsor) => (
-                    <div key={sponsor.id} className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
+                    <div
+                      key={sponsor.id}
+                      className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"
+                      style={
+                        sponsor.coverImageUrl
+                          ? {
+                              backgroundImage: `linear-gradient(90deg, rgba(255,251,235,.94), rgba(255,251,235,.82)), url(${sponsor.coverImageUrl})`,
+                              backgroundSize: "cover",
+                              backgroundPosition: "center",
+                            }
+                          : undefined
+                      }
+                    >
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white text-xs font-black text-amber-700">
                           {sponsor.logoUrl ? (

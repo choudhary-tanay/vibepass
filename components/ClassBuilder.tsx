@@ -96,6 +96,8 @@ interface DraftSponsor {
   paymentStatus: string;
   showPublicly: boolean;
   sponsorDisplayName: string;
+  sponsorLogoUrl: string;
+  sponsorCoverImageUrl: string;
   sponsorMessage: string;
 }
 
@@ -151,8 +153,15 @@ interface SavedSponsorRow {
   payment_status?: string | null;
   show_sponsor_publicly?: boolean | null;
   sponsor_display_name?: string | null;
+  sponsor_logo_url?: string | null;
+  sponsor_cover_image_url?: string | null;
   sponsor_message?: string | null;
-  sponsors?: { sponsor_name?: string | null; email?: string | null } | null;
+  sponsors?: {
+    sponsor_name?: string | null;
+    email?: string | null;
+    logo_url?: string | null;
+    cover_image_url?: string | null;
+  } | null;
 }
 
 function newDraftExpense(): DraftExpense {
@@ -170,6 +179,8 @@ function newDraftSponsor(currency: string): DraftSponsor {
     paymentStatus: "expected",
     showPublicly: false,
     sponsorDisplayName: "",
+    sponsorLogoUrl: "",
+    sponsorCoverImageUrl: "",
     sponsorMessage: "",
   };
 }
@@ -243,8 +254,30 @@ function normaliseSponsorRow(row: SavedSponsorRow, currency: string): DraftSpons
     paymentStatus: row.payment_status ?? "expected",
     showPublicly: Boolean(row.show_sponsor_publicly),
     sponsorDisplayName: row.sponsor_display_name ?? "",
+    sponsorLogoUrl: row.sponsor_logo_url ?? row.sponsors?.logo_url ?? "",
+    sponsorCoverImageUrl: row.sponsor_cover_image_url ?? row.sponsors?.cover_image_url ?? "",
     sponsorMessage: row.sponsor_message ?? "",
   };
+}
+
+function sponsorDraftKey(sponsor: DraftSponsor) {
+  const sponsorId = sponsor.sponsorId.trim();
+  if (sponsorId) return `id:${sponsorId}`;
+  const name = sponsor.sponsorName.trim().toLowerCase();
+  const email = sponsor.sponsorEmail.trim().toLowerCase();
+  const display = sponsor.sponsorDisplayName.trim().toLowerCase();
+  return `new:${email || name || display}`;
+}
+
+function dedupeDraftSponsors(sponsors: DraftSponsor[]) {
+  const map = new Map<string, DraftSponsor>();
+  for (const sponsor of sponsors) {
+    const key = sponsorDraftKey(sponsor);
+    if (key === "new:") continue;
+    const existing = map.get(key);
+    map.set(key, existing ? { ...existing, ...sponsor } : sponsor);
+  }
+  return Array.from(map.values());
 }
 
 function Section({
@@ -333,7 +366,12 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
   const [fixedClassCosts, setFixedClassCosts] = useState<Record<string, string>>({});
   const [draftExpenses, setDraftExpenses] = useState<DraftExpense[]>([]);
   const [draftSponsors, setDraftSponsors] = useState<DraftSponsor[]>([]);
-  const [existingSponsors, setExistingSponsors] = useState<Array<{id: string; sponsor_name: string}>>([]);
+  const [existingSponsors, setExistingSponsors] = useState<Array<{
+    id: string;
+    sponsor_name: string;
+    logo_url?: string | null;
+    cover_image_url?: string | null;
+  }>>([]);
   const [openSections, setOpenSections] = useState<Set<number>>(new Set([1]));
   // Business operating currency only.
   const currency = builderBusiness?.defaultCurrency ?? form.currency ?? "INR";
@@ -355,7 +393,12 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
   const activeStaff = builderBusiness
     ? staff.filter((s) => s.businessId === builderBusiness.id && s.status === "active")
     : [];
+  const canCoordinateProposalStaff = !isPropose || currentStaff?.userGroup === "management";
   const instructorStaff = activeStaff.filter((member) => member.userGroup !== "management");
+  const selectableInstructorStaff =
+    isPropose && !canCoordinateProposalStaff && currentStaff
+      ? [currentStaff]
+      : instructorStaff;
   const selectedStaffIds = form.staffIds.length > 0 ? form.staffIds : form.staffId ? [form.staffId] : [];
   const selectedStaff = activeStaff.find((s) => s.id === selectedStaffIds[0]);
   const selectedInstructors = selectedStaffIds
@@ -416,6 +459,9 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
   const netPerBooking = previewFinancials.netRevenuePerBooking;
   const breakEvenCount = previewFinancials.breakEvenBookings;
   const selectedVenue = venues.find((venue) => venue.id === form.venueId);
+  const selectedExistingSponsorIds = new Set(
+    draftSponsors.map((sponsor) => sponsor.sponsorId).filter(Boolean)
+  );
 
   useEffect(() => {
     if (!isPropose || !currentStaff || form.staffIds.length > 0) return;
@@ -665,6 +711,10 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
         currency: nextCurrency,
       });
       setExistingImageUrl(typeof row.image_url === "string" ? row.image_url : null);
+      setCoverArtworkVariant(row.artwork_variant === "alternate" ? "alternate" : "primary");
+      setCoverTextColor(typeof row.artwork_text_color === "string" && row.artwork_text_color
+        ? row.artwork_text_color
+        : "#ffffff");
 
       const [expensesResponse, sponsorsResponse, bookingFormResponse] = await Promise.all([
         fetch(`/api/owner/classes/${classId}/expenses`).catch(() => null),
@@ -799,24 +849,28 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
   }
 
   function handleInstructorSelection(values: string[]) {
-    const names = values
+    const nextValues =
+      isPropose && !canCoordinateProposalStaff && currentStaff
+        ? [currentStaff.id]
+        : values;
+    const names = nextValues
       .map((staffId) => activeStaff.find((member) => member.id === staffId)?.name)
       .filter((name): name is string => Boolean(name));
 
     setForm((prev) => ({
       ...prev,
-      staffIds: values,
-      staffId: values[0] ?? "",
+      staffIds: nextValues,
+      staffId: nextValues[0] ?? "",
       instructorName: names.join(", "),
     }));
     setCommissionRules((prev) => {
       const next: Record<string, CommissionRule> = {};
-      for (const staffId of values) next[staffId] = prev[staffId] ?? defaultCommissionRule();
+      for (const staffId of nextValues) next[staffId] = prev[staffId] ?? defaultCommissionRule();
       return next;
     });
     setFixedClassCosts((prev) => {
       const next: Record<string, string> = {};
-      for (const staffId of values) next[staffId] = prev[staffId] ?? "0";
+      for (const staffId of nextValues) next[staffId] = prev[staffId] ?? "0";
       return next;
     });
     if (errors.instructorName) setErrors((p) => ({ ...p, instructorName: undefined as unknown as string }));
@@ -995,6 +1049,8 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
       expectedBookings: form.expectedBookings !== "" ? Number(form.expectedBookings) : undefined,
       currency: currency,
       imageUrl: imageUrl ?? existingImageUrl ?? undefined,
+      artworkVariant: coverArtworkVariant,
+      artworkTextColor: coverTextColor,
     };
   }
 
@@ -1024,7 +1080,10 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
       }).catch(() => null);
     }
 
-    for (const sponsor of draftSponsors) {
+    const uniqueSponsors = dedupeDraftSponsors(draftSponsors);
+    setDraftSponsors(uniqueSponsors);
+
+    for (const sponsor of uniqueSponsors) {
       if (!sponsor.sponsorName.trim() && !sponsor.sponsorId) continue;
       const amount = Number(sponsor.sponsorAmount) || 0;
       if (amount === 0) continue;
@@ -1040,6 +1099,8 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
           paymentStatus: sponsor.paymentStatus || "expected",
           showSponsorPublicly: sponsor.showPublicly,
           sponsorDisplayName: sponsor.sponsorDisplayName.trim() || undefined,
+          sponsorLogoUrl: sponsor.sponsorLogoUrl.trim() || undefined,
+          sponsorCoverImageUrl: sponsor.sponsorCoverImageUrl.trim() || undefined,
           sponsorMessage: sponsor.sponsorMessage.trim() || undefined,
         }),
       }).catch(() => null);
@@ -1393,7 +1454,15 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
             >
               <div className="space-y-4">
                 {venues.length > 0 && (
-                  <Field label="Saved venue" name="venueId" hint="Uses business/global venue defaults; you can still override class-specific costs.">
+                  <Field
+                    label="Saved venue"
+                    name="venueId"
+                    hint={
+                      isPropose
+                        ? "Select an existing venue or type proposal-only venue details below. This will not create a venue record."
+                        : "Uses business/global venue defaults; you can still override class-specific costs."
+                    }
+                  >
                     <select
                       id="venueId"
                       name="venueId"
@@ -1453,9 +1522,15 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Assign instructors" name="staffIds"
-                    hint={instructorStaff.length === 0 ? "Add instructor staff first" : "First selected is primary"}>
+                    hint={
+                      selectableInstructorStaff.length === 0
+                        ? "No instructor staff available yet"
+                        : isPropose && !canCoordinateProposalStaff
+                          ? "Your proposal is assigned to you. The owner can assign more staff during review."
+                          : "First selected is primary"
+                    }>
                     <MultiSelect
-                      options={instructorStaff.map((s) => ({
+                      options={selectableInstructorStaff.map((s) => ({
                         value: s.id, label: s.name,
                         description: `${s.role} · ${s.userGroup ?? "instructor"}`,
                       }))}
@@ -1839,12 +1914,18 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                     </div>
                   </div>
                 )}
-                <Link
-                  href="/owner/booking-forms"
-                  className="inline-flex rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
-                >
-                  Create or edit forms
-                </Link>
+                {isPropose ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+                    Staff proposals can attach an existing form here. If this class needs a new form, include the requested questions in the class details for owner review.
+                  </p>
+                ) : (
+                  <Link
+                    href="/owner/booking-forms"
+                    className="inline-flex rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Create or edit forms
+                  </Link>
+                )}
               </div>
             </Section>
 
@@ -1873,6 +1954,11 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                 <p className="text-sm text-gray-500">
                   Sponsor income increases profit and reduces the break-even booking requirement. Sponsors can optionally appear publicly on the class page.
                 </p>
+                {isPropose && (
+                  <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500">
+                    Select an existing sponsor when available. New sponsor names entered here are saved as proposal-only class sponsorship details until the owner reviews them.
+                  </p>
+                )}
 
                 {draftSponsors.length === 0 ? (
                   <p className="text-xs text-gray-400">No sponsors yet. Click &quot;+ Add Sponsor&quot; to add sponsorship for this class.</p>
@@ -1886,13 +1972,25 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                             <label className="mb-1 block text-xs font-bold text-gray-600">Sponsor</label>
                             <select
                               value={sponsor.sponsorId}
-                              onChange={(e) => setDraftSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorId: e.target.value, sponsorName: e.target.value ? "" : s.sponsorName } : s))}
+                              onChange={(e) => {
+                                const selected = existingSponsors.find((item) => item.id === e.target.value);
+                                setDraftSponsors(prev => prev.map(s => s.id === sponsor.id ? {
+                                  ...s,
+                                  sponsorId: e.target.value,
+                                  sponsorName: e.target.value ? "" : s.sponsorName,
+                                  sponsorDisplayName: selected?.sponsor_name ?? s.sponsorDisplayName,
+                                  sponsorLogoUrl: selected?.logo_url ?? s.sponsorLogoUrl,
+                                  sponsorCoverImageUrl: selected?.cover_image_url ?? s.sponsorCoverImageUrl,
+                                } : s));
+                              }}
                               className={inputClass(false)}
                             >
                               <option value="">— New sponsor —</option>
-                              {existingSponsors.map(es => (
-                                <option key={es.id} value={es.id}>{es.sponsor_name}</option>
-                              ))}
+                              {existingSponsors
+                                .filter((es) => es.id === sponsor.sponsorId || !selectedExistingSponsorIds.has(es.id))
+                                .map(es => (
+                                  <option key={es.id} value={es.id}>{es.sponsor_name}</option>
+                                ))}
                             </select>
                           </div>
                           {!sponsor.sponsorId && (
@@ -1958,6 +2056,26 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                                 value={sponsor.sponsorDisplayName}
                                 onChange={(e) => setDraftSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorDisplayName: e.target.value } : s))}
                                 placeholder="e.g. Proudly sponsored by Acme"
+                                className={inputClass(false)}
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-bold text-gray-600">Public logo URL (optional)</label>
+                              <input
+                                type="url"
+                                value={sponsor.sponsorLogoUrl}
+                                onChange={(e) => setDraftSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorLogoUrl: e.target.value } : s))}
+                                placeholder="https://..."
+                                className={inputClass(false)}
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-bold text-gray-600">Public cover image URL (optional)</label>
+                              <input
+                                type="url"
+                                value={sponsor.sponsorCoverImageUrl}
+                                onChange={(e) => setDraftSponsors(prev => prev.map(s => s.id === sponsor.id ? { ...s, sponsorCoverImageUrl: e.target.value } : s))}
+                                placeholder="https://..."
                                 className={inputClass(false)}
                               />
                             </div>

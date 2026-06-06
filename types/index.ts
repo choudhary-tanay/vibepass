@@ -100,6 +100,8 @@ export interface Class {
   difficultyLevel?: string;
   tags?: string[];
   imageUrl?: string;
+  artworkVariant?: "primary" | "alternate";
+  artworkTextColor?: string;
   locationType?: string;
   venueDetails?: string;
   onlineLink?: string;
@@ -137,6 +139,15 @@ export interface Class {
   taxValue?: number;
   expectedBookings?: number;
   currency?: string;
+  marketplaceSponsors?: ClassMarketplaceSponsor[];
+}
+
+export interface ClassMarketplaceSponsor {
+  id: string;
+  displayName: string;
+  logoUrl?: string | null;
+  coverImageUrl?: string | null;
+  message?: string | null;
 }
 
 export interface Booking {
@@ -162,6 +173,7 @@ export interface Booking {
 export interface Staff {
   id: string;
   businessId: string;
+  userId?: string | null;
   name: string;
   email: string;
   phone: string;
@@ -298,6 +310,7 @@ export interface Sponsor {
   phone?: string | null;
   website?: string | null;
   logoUrl?: string | null;
+  coverImageUrl?: string | null;
   description?: string | null;
   category?: string | null;
   notes?: string | null;
@@ -321,6 +334,7 @@ export interface ClassSponsor {
   showSponsorPublicly: boolean;
   sponsorDisplayName?: string | null;
   sponsorLogoUrl?: string | null;
+  sponsorCoverImageUrl?: string | null;
   sponsorMessage?: string | null;
   createdAt: string;
   updatedAt?: string;

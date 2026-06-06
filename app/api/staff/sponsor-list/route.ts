@@ -3,6 +3,16 @@ import {
   requireAuthenticatedServiceClient,
 } from "@/lib/accessControl";
 
+function dedupeSponsors(rows: any[]) {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = String(row.email || row.sponsor_name || row.id).trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function GET() {
   const access = await requireAuthenticatedServiceClient();
   if ("response" in access) return access.response;
@@ -24,17 +34,25 @@ export async function GET() {
     return Response.json({ sponsors: [] });
   }
 
-  const { data, error } = await access.supabase
+  let result: { data: any[] | null; error: any } = await access.supabase
     .from("sponsors")
-    .select("id, sponsor_name, email, website, logo_url, status")
+    .select("id, sponsor_name, email, website, logo_url, cover_image_url, status")
     .eq("business_id", staffRow.business_id)
     .eq("status", "active")
     .order("sponsor_name", { ascending: true });
-
-  if (error) {
-    if (isAccessSchemaMissing(error)) return Response.json({ sponsors: [] });
-    return Response.json({ error: error.message }, { status: 500 });
+  if (result.error && isAccessSchemaMissing(result.error)) {
+    result = await access.supabase
+      .from("sponsors")
+      .select("id, sponsor_name, email, website, logo_url, status")
+      .eq("business_id", staffRow.business_id)
+      .eq("status", "active")
+      .order("sponsor_name", { ascending: true });
   }
 
-  return Response.json({ sponsors: data ?? [] });
+  if (result.error) {
+    if (isAccessSchemaMissing(result.error)) return Response.json({ sponsors: [] });
+    return Response.json({ error: result.error.message }, { status: 500 });
+  }
+
+  return Response.json({ sponsors: dedupeSponsors(result.data ?? []) });
 }

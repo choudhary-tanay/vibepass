@@ -6,6 +6,7 @@ import type {
   Business,
   BusinessStatus,
   Class,
+  ClassMarketplaceSponsor,
   ClassStatus,
   Booking,
   BookingStatus,
@@ -79,6 +80,8 @@ interface DbClass {
   difficulty_level: string | null;
   tags: string[] | null;
   image_url: string | null;
+  artwork_variant?: string | null;
+  artwork_text_color?: string | null;
   location_type: string | null;
   venue_details: string | null;
   online_link: string | null;
@@ -119,6 +122,7 @@ interface DbClass {
 interface DbStaff {
   id: string;
   business_id: string;
+  user_id?: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -143,6 +147,27 @@ interface DbClassStaff {
   commission_type?: string | null;
   commission_value?: number | null;
   commission_percent?: number | null;
+}
+
+interface DbPublicClassSponsor {
+  id: string;
+  class_id: string;
+  sponsor_display_name?: string | null;
+  sponsor_logo_url?: string | null;
+  sponsor_cover_image_url?: string | null;
+  sponsor_message?: string | null;
+  sponsors?:
+    | {
+        sponsor_name?: string | null;
+        logo_url?: string | null;
+        cover_image_url?: string | null;
+      }
+    | Array<{
+        sponsor_name?: string | null;
+        logo_url?: string | null;
+        cover_image_url?: string | null;
+      }>
+    | null;
 }
 
 interface DbBooking {
@@ -239,6 +264,8 @@ function toClass(row: DbClass, classStaffByClass?: Record<string, string[]>): Cl
     difficultyLevel: row.difficulty_level ?? undefined,
     tags: row.tags ?? undefined,
     imageUrl: row.image_url ?? undefined,
+    artworkVariant: row.artwork_variant === "alternate" ? "alternate" : "primary",
+    artworkTextColor: row.artwork_text_color ?? undefined,
     locationType: row.location_type ?? undefined,
     venueDetails: row.venue_details ?? undefined,
     onlineLink: row.online_link ?? undefined,
@@ -276,10 +303,26 @@ function toClass(row: DbClass, classStaffByClass?: Record<string, string[]>): Cl
   };
 }
 
+function mapPublicSponsorsByClass(rows: DbPublicClassSponsor[]) {
+  return rows.reduce<Record<string, ClassMarketplaceSponsor[]>>((acc, row) => {
+    const sponsor = Array.isArray(row.sponsors) ? row.sponsors[0] : row.sponsors;
+    acc[row.class_id] = acc[row.class_id] ?? [];
+    acc[row.class_id].push({
+      id: row.id,
+      displayName: row.sponsor_display_name || sponsor?.sponsor_name || "Sponsor",
+      logoUrl: row.sponsor_logo_url || sponsor?.logo_url || null,
+      coverImageUrl: row.sponsor_cover_image_url || sponsor?.cover_image_url || null,
+      message: row.sponsor_message || null,
+    });
+    return acc;
+  }, {});
+}
+
 function toStaff(row: DbStaff): Staff {
   return {
     id: row.id,
     businessId: row.business_id,
+    userId: row.user_id ?? null,
     name: row.name,
     email: row.email ?? "",
     phone: row.phone ?? "",
@@ -493,9 +536,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
         {}
       );
+      const classIds = ((classRows ?? []) as DbClass[]).map((row) => row.id);
+      let publicSponsorRows: DbPublicClassSponsor[] = [];
+      if (classIds.length > 0) {
+        const sponsorSelectWithCover =
+          "id, class_id, sponsor_display_name, sponsor_logo_url, sponsor_cover_image_url, sponsor_message, sponsors(sponsor_name, logo_url, cover_image_url)";
+        const sponsorSelectFallback =
+          "id, class_id, sponsor_display_name, sponsor_logo_url, sponsor_message, sponsors(sponsor_name, logo_url)";
+        let sponsorResult: { data: DbPublicClassSponsor[] | null; error: any } = await supabase
+          .from("class_sponsors")
+          .select(sponsorSelectWithCover)
+          .in("class_id", classIds)
+          .eq("show_sponsor_publicly", true)
+          .order("created_at", { ascending: true });
+        if (sponsorResult.error && isSchemaColumnMissing(sponsorResult.error)) {
+          sponsorResult = await supabase
+            .from("class_sponsors")
+            .select(sponsorSelectFallback)
+            .in("class_id", classIds)
+            .eq("show_sponsor_publicly", true)
+            .order("created_at", { ascending: true });
+        }
+        if (sponsorResult.error && !isSchemaColumnMissing(sponsorResult.error)) {
+          console.error("Supabase public class_sponsors error:", sponsorResult.error);
+        } else {
+          publicSponsorRows = (sponsorResult.data as DbPublicClassSponsor[] | null) ?? [];
+        }
+      }
+      const publicSponsorsByClass = mapPublicSponsorsByClass(publicSponsorRows);
 
       setBusinesses(dedupById((bizRows ?? []).map((r) => toBusiness(r as DbBusiness))));
-      setClasses(dedupById((classRows ?? []).map((r) => toClass(r as DbClass, classStaffByClass))));
+      setClasses(dedupById((classRows ?? []).map((r) => {
+        const row = r as DbClass;
+        return {
+          ...toClass(row, classStaffByClass),
+          marketplaceSponsors: publicSponsorsByClass[row.id] ?? [],
+        };
+      })));
       setBookings(dedupById((bookingRows ?? []).map((r) => toBooking(r as DbBooking))));
       setStaff(dedupById((staffRows ?? []).map((r) => toStaff(r as DbStaff))));
     } catch (err) {
@@ -549,62 +626,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : [];
     const primaryStaffId = selectedStaffIds[0] ?? cls.staffId ?? null;
 
-    const { data, error } = await supabase
+    const insertPayload = {
+      business_id: cls.businessId,
+      title: cls.title,
+      description: cls.description,
+      category: cls.category,
+      instructor_name: cls.instructorName,
+      staff_id: primaryStaffId,
+      date: cls.date,
+      start_time: cls.startTime,
+      end_time: cls.endTime,
+      price: cls.price,
+      capacity: cls.capacity,
+      location: cls.location,
+      status: cls.status,
+      staff_commission_percent: cls.staffCommissionPercent ?? 0,
+      tagline: cls.tagline ?? null,
+      what_to_expect: cls.whatToExpect ?? null,
+      who_this_is_for: cls.whoThisIsFor ?? null,
+      what_to_bring: cls.whatToBring ?? null,
+      difficulty_level: cls.difficultyLevel ?? null,
+      tags: cls.tags ?? null,
+      image_url: cls.imageUrl ?? null,
+      artwork_variant: cls.artworkVariant ?? "primary",
+      artwork_text_color: cls.artworkTextColor ?? null,
+      location_type: cls.locationType ?? "in_person",
+      venue_details: cls.venueDetails ?? null,
+      online_link: cls.onlineLink ?? null,
+      cancellation_policy: cls.cancellationPolicy ?? null,
+      refund_policy_summary: cls.refundPolicySummary ?? null,
+      customer_cancellation_allowed: cls.customerCancellationAllowed ?? true,
+      cancellation_cutoff_hours: cls.cancellationCutoffHours ?? null,
+      cancellation_cutoff_behavior: cls.cancellationCutoffBehavior ?? "block",
+      refund_fallback_owner_cancel: cls.refundFallbackOwnerCancel ?? "full_refund",
+      refund_fallback_customer_cancel: cls.refundFallbackCustomerCancel ?? "manual_review",
+      featured: cls.featured ?? false,
+      featured_position: cls.featuredPosition ?? null,
+      featured_label: cls.featuredLabel ?? null,
+      featured_until: cls.featuredUntil ?? null,
+      featured_by_admin: cls.featuredByAdmin ?? false,
+      featured_request_status: cls.featureRequested ? "requested" : "none",
+      featured_request_note: cls.featureRequestNote ?? null,
+      featured_requested_at: cls.featureRequested ? new Date().toISOString() : null,
+      age_suitability: cls.ageSuitability ?? null,
+      venue_name: cls.venueName ?? null,
+      venue_id: cls.venueId ?? null,
+      venue_cost: cls.venueCost ?? 0,
+      venue_note: cls.venueNote ?? null,
+      venue_cost_currency: cls.venueCostCurrency ?? cls.currency ?? "INR",
+      venue_cost_note: cls.venueCostNote ?? cls.venueNote ?? null,
+      tax_type: cls.taxType ?? "none",
+      tax_value: cls.taxValue ?? 0,
+      expected_bookings: cls.expectedBookings ?? null,
+      currency: cls.currency ?? "INR",
+    };
+
+    let classInsert = await supabase
       .from("classes")
-      .insert({
-        business_id: cls.businessId,
-        title: cls.title,
-        description: cls.description,
-        category: cls.category,
-        instructor_name: cls.instructorName,
-        staff_id: primaryStaffId,
-        date: cls.date,
-        start_time: cls.startTime,
-        end_time: cls.endTime,
-        price: cls.price,
-        capacity: cls.capacity,
-        location: cls.location,
-        status: cls.status,
-        staff_commission_percent: cls.staffCommissionPercent ?? 0,
-        tagline: cls.tagline ?? null,
-        what_to_expect: cls.whatToExpect ?? null,
-        who_this_is_for: cls.whoThisIsFor ?? null,
-        what_to_bring: cls.whatToBring ?? null,
-        difficulty_level: cls.difficultyLevel ?? null,
-        tags: cls.tags ?? null,
-        image_url: cls.imageUrl ?? null,
-        location_type: cls.locationType ?? "in_person",
-        venue_details: cls.venueDetails ?? null,
-        online_link: cls.onlineLink ?? null,
-        cancellation_policy: cls.cancellationPolicy ?? null,
-        refund_policy_summary: cls.refundPolicySummary ?? null,
-        customer_cancellation_allowed: cls.customerCancellationAllowed ?? true,
-        cancellation_cutoff_hours: cls.cancellationCutoffHours ?? null,
-        cancellation_cutoff_behavior: cls.cancellationCutoffBehavior ?? "block",
-        refund_fallback_owner_cancel: cls.refundFallbackOwnerCancel ?? "full_refund",
-        refund_fallback_customer_cancel: cls.refundFallbackCustomerCancel ?? "manual_review",
-        featured: cls.featured ?? false,
-        featured_position: cls.featuredPosition ?? null,
-        featured_label: cls.featuredLabel ?? null,
-        featured_until: cls.featuredUntil ?? null,
-        featured_by_admin: cls.featuredByAdmin ?? false,
-        featured_request_status: cls.featureRequested ? "requested" : "none",
-        featured_request_note: cls.featureRequestNote ?? null,
-        featured_requested_at: cls.featureRequested ? new Date().toISOString() : null,
-        age_suitability: cls.ageSuitability ?? null,
-        venue_name: cls.venueName ?? null,
-        venue_id: cls.venueId ?? null,
-        venue_cost: cls.venueCost ?? 0,
-        venue_note: cls.venueNote ?? null,
-        venue_cost_currency: cls.venueCostCurrency ?? cls.currency ?? "INR",
-        venue_cost_note: cls.venueCostNote ?? cls.venueNote ?? null,
-        tax_type: cls.taxType ?? "none",
-        tax_value: cls.taxValue ?? 0,
-        expected_bookings: cls.expectedBookings ?? null,
-        currency: cls.currency ?? "INR",
-      })
+      .insert(insertPayload)
       .select()
       .single();
+
+    if (classInsert.error && isSchemaColumnMissing(classInsert.error)) {
+      const { artwork_variant: _ignoredArtworkVariant, artwork_text_color: _ignoredArtworkTextColor, ...fallbackPayload } = insertPayload;
+      void _ignoredArtworkVariant;
+      void _ignoredArtworkTextColor;
+      classInsert = await supabase
+        .from("classes")
+        .insert(fallbackPayload)
+        .select()
+        .single();
+    }
+
+    const { data, error } = classInsert;
 
     if (error || !data) {
       console.error("Error adding class:", error);
@@ -683,6 +777,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data.difficultyLevel !== undefined) patch.difficulty_level = data.difficultyLevel || null;
     if (data.tags !== undefined) patch.tags = data.tags && data.tags.length > 0 ? data.tags : null;
     if (data.imageUrl !== undefined) patch.image_url = data.imageUrl || null;
+    if (data.artworkVariant !== undefined) patch.artwork_variant = data.artworkVariant ?? "primary";
+    if (data.artworkTextColor !== undefined) patch.artwork_text_color = data.artworkTextColor || null;
     if (data.locationType !== undefined) patch.location_type = data.locationType || "in_person";
     if (data.venueDetails !== undefined) patch.venue_details = data.venueDetails || null;
     if (data.onlineLink !== undefined) patch.online_link = data.onlineLink || null;
@@ -717,13 +813,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (data.expectedBookings !== undefined) patch.expected_bookings = data.expectedBookings ?? null;
     if (data.currency !== undefined) patch.currency = data.currency ?? "INR";
 
-    const { error } = await supabase
+    let updateResult = await supabase
       .from("classes")
       .update(patch)
       .eq("id", classId);
 
-    if (error) {
-      console.error("Error updating class:", error);
+    if (
+      updateResult.error &&
+      isSchemaColumnMissing(updateResult.error) &&
+      ("artwork_variant" in patch || "artwork_text_color" in patch)
+    ) {
+      const { artwork_variant: _ignoredArtworkVariant, artwork_text_color: _ignoredArtworkTextColor, ...fallbackPatch } = patch;
+      void _ignoredArtworkVariant;
+      void _ignoredArtworkTextColor;
+      updateResult = await supabase
+        .from("classes")
+        .update(fallbackPatch)
+        .eq("id", classId);
+    }
+
+    if (updateResult.error) {
+      console.error("Error updating class:", updateResult.error);
       return false;
     }
 

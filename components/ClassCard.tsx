@@ -97,6 +97,8 @@ export function ClassCard({
   const instructorNames = displayInstructors.map((instructor) => instructor.name).join(", ");
   const tone = categoryTone[cls.category.toLowerCase()] ?? categoryTone.yoga;
   const priceLabel = cls.price === 0 ? "Free" : formatCurrency(cls.price, cls.currency ?? "INR");
+  const publicSponsors = (cls.marketplaceSponsors ?? []).filter((sponsor) => sponsor.displayName);
+  const leadSponsor = publicSponsors.find((sponsor) => sponsor.coverImageUrl) ?? publicSponsors[0];
 
   return (
     <article className="group flex min-h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.08)] transition-transform hover:-translate-y-1 dark:border-slate-800 dark:bg-slate-950">
@@ -109,13 +111,10 @@ export function ClassCard({
             className="absolute inset-0 h-full w-full rounded-none"
             compact
             backgroundOnly
+            imageUrl={cls.imageUrl}
+            artworkVariant={cls.artworkVariant}
+            textColor={cls.artworkTextColor}
           />
-          {cls.imageUrl && (
-            <div
-              className="absolute inset-0 h-full w-full bg-cover bg-center shadow-inner"
-              style={{ backgroundImage: `url(${cls.imageUrl})` }}
-            />
-          )}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-slate-950/5 to-transparent" />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
@@ -134,6 +133,33 @@ export function ClassCard({
         <div className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-sm font-black text-slate-950 shadow-md">
           {initialsFor(cls.title)}
         </div>
+        {leadSponsor && (
+          <div
+            className="absolute bottom-3 left-3 max-w-[62%] overflow-hidden rounded-xl bg-white/92 px-2.5 py-2 shadow-md backdrop-blur"
+            style={
+              leadSponsor.coverImageUrl
+                ? {
+                    backgroundImage: `linear-gradient(90deg, rgba(255,255,255,.94), rgba(255,255,255,.78)), url(${leadSponsor.coverImageUrl})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }
+                : undefined
+            }
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-[9px] font-black text-slate-700">
+                {leadSponsor.logoUrl ? (
+                  <img src={leadSponsor.logoUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initialsFor(leadSponsor.displayName)
+                )}
+              </span>
+              <span className="min-w-0 truncate text-[10px] font-black uppercase tracking-wide text-slate-700">
+                Sponsored by {leadSponsor.displayName}
+              </span>
+            </div>
+          </div>
+        )}
         <span className="absolute bottom-3 right-3 rounded-full bg-white px-3 py-1 text-xs font-black text-rose-500 shadow-md">
           {occupancy}% filled
         </span>

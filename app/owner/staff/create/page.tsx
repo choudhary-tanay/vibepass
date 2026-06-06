@@ -58,6 +58,7 @@ export default function CreateStaffPage() {
 
   // After staff is added
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState("");
   const [addedName, setAddedName] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -128,6 +129,9 @@ export default function CreateStaffPage() {
       if (res.ok) {
         const d = await res.json();
         setInviteUrl(d.inviteUrl);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setInviteError(data.error ?? "Staff was added, but the invite link could not be generated.");
       }
     }
 
@@ -189,6 +193,10 @@ export default function CreateStaffPage() {
                   </p>
                 </div>
               </>
+            ) : form.email.trim() ? (
+              <div className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
+                {inviteError || "Staff was added, but the invite link could not be generated."} Open the staff list and use Get link to create or renew their portal invite.
+              </div>
             ) : (
               <p className="mt-2 text-sm text-slate-600">
                 Staff member added. No email provided — use{" "}
@@ -210,6 +218,7 @@ export default function CreateStaffPage() {
                 onClick={() => {
                   setForm({ name: "", email: "", phone: "", role: "instructor", userGroup: "instructor" });
                   setInviteUrl(null);
+                  setInviteError("");
                   setAddedName("");
                   setCopied(false);
                   setSaveError("");

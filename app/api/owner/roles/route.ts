@@ -1,4 +1,5 @@
 import {
+  BUSINESS_PERMISSION_DEFINITIONS,
   isAccessSchemaMissing,
   mapBusinessRole,
   requireBusinessPermission,
@@ -13,6 +14,21 @@ function slugifyRoleName(name: string) {
     .replace(/^_+|_+$/g, "")
     .slice(0, 42);
   return `custom_${slug || "role"}`;
+}
+
+async function ensureBusinessPermissionDefinitions(supabase: SupabaseClient) {
+  const { error } = await supabase.from("permission_definitions").upsert(
+    BUSINESS_PERMISSION_DEFINITIONS.map((permission) => ({
+      key: permission.key,
+      label: permission.label,
+      description: permission.description ?? null,
+      scope: permission.scope,
+      group_name: permission.groupName,
+      is_sensitive: permission.isSensitive,
+    })),
+    { onConflict: "key" }
+  );
+  return error;
 }
 
 async function validatePermissions(
@@ -51,6 +67,17 @@ export async function POST(request: Request) {
 
   const permission = await requireBusinessPermission(businessId, "roles.manage");
   if ("response" in permission) return permission.response;
+
+  const ensureError = await ensureBusinessPermissionDefinitions(permission.supabase);
+  if (ensureError) {
+    if (isAccessSchemaMissing(ensureError)) {
+      return Response.json(
+        { error: "Run supabase/nf1-access-operations-foundation.sql before creating roles." },
+        { status: 501 }
+      );
+    }
+    return Response.json({ error: ensureError.message }, { status: 500 });
+  }
 
   const validated = await validatePermissions(permission.supabase, permissionKeys);
   if (!validated.ok) {
@@ -130,15 +157,29 @@ export async function PATCH(request: Request) {
 
   const { data: existingRole, error: existingError } = await permission.supabase
     .from("business_roles")
-    .select("id, business_id, is_system")
+    .select("id, business_id, role_key, is_system")
     .eq("id", roleId)
     .maybeSingle();
 
   if (existingError) {
     return Response.json({ error: existingError.message }, { status: 500 });
   }
-  if (!existingRole || existingRole.business_id !== businessId || existingRole.is_system) {
-    return Response.json({ error: "Only custom roles for this business can be edited." }, { status: 400 });
+  if (
+    !existingRole ||
+    (existingRole.business_id !== businessId && existingRole.business_id !== null)
+  ) {
+    return Response.json({ error: "Choose a valid role for this business." }, { status: 400 });
+  }
+
+  const ensureError = await ensureBusinessPermissionDefinitions(permission.supabase);
+  if (ensureError) {
+    if (isAccessSchemaMissing(ensureError)) {
+      return Response.json(
+        { error: "Run supabase/nf1-access-operations-foundation.sql before editing roles." },
+        { status: 501 }
+      );
+    }
+    return Response.json({ error: ensureError.message }, { status: 500 });
   }
 
   const validated = await validatePermissions(permission.supabase, permissionKeys);
@@ -149,26 +190,93 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const { data: role, error } = await permission.supabase
-    .from("business_roles")
-    .update({
-      role_name: roleName,
-      description: description || null,
-      status,
-    })
-    .eq("id", roleId)
-    .select("*")
-    .single();
+  let targetRoleId = roleId;
+  let role: Record<string, unknown> | null = null;
+  let error: { message: string } | null = null;
+
+  if (existingRole.business_id === null) {
+    const { data: override, error: overrideLookupError } = await permission.supabase
+      .from("business_roles")
+      .select("*")
+      .eq("business_id", businessId)
+      .eq("role_key", existingRole.role_key)
+      .maybeSingle();
+
+    if (overrideLookupError) {
+      return Response.json({ error: overrideLookupError.message }, { status: 500 });
+    }
+
+    if (override) {
+      targetRoleId = String(override.id);
+      const result = await permission.supabase
+        .from("business_roles")
+        .update({
+          role_name: roleName,
+          description: description || null,
+          status,
+        })
+        .eq("id", targetRoleId)
+        .select("*")
+        .single();
+      role = result.data as Record<string, unknown> | null;
+      error = result.error;
+    } else {
+      const result = await permission.supabase
+        .from("business_roles")
+        .insert({
+          business_id: businessId,
+          role_key: existingRole.role_key,
+          role_name: roleName,
+          description: description || null,
+          is_system: false,
+          status,
+          created_by: permission.authUserId,
+        })
+        .select("*")
+        .single();
+      role = result.data as Record<string, unknown> | null;
+      error = result.error;
+      if (role?.id) targetRoleId = String(role.id);
+    }
+
+    if (!error && targetRoleId !== roleId) {
+      await Promise.all([
+        permission.supabase
+          .from("business_users")
+          .update({ business_role_id: targetRoleId })
+          .eq("business_id", businessId)
+          .eq("business_role_id", roleId),
+        permission.supabase
+          .from("business_user_invites")
+          .update({ business_role_id: targetRoleId })
+          .eq("business_id", businessId)
+          .eq("business_role_id", roleId),
+      ]);
+    }
+  } else {
+    const result = await permission.supabase
+      .from("business_roles")
+      .update({
+        role_name: roleName,
+        description: description || null,
+        status,
+      })
+      .eq("id", roleId)
+      .select("*")
+      .single();
+    role = result.data as Record<string, unknown> | null;
+    error = result.error;
+  }
 
   if (error || !role) {
     return Response.json({ error: error?.message ?? "Failed to update role." }, { status: 500 });
   }
 
-  await permission.supabase.from("business_role_permissions").delete().eq("role_id", roleId);
+  await permission.supabase.from("business_role_permissions").delete().eq("role_id", targetRoleId);
   if (validated.keys.length > 0) {
     const { error: permissionError } = await permission.supabase
       .from("business_role_permissions")
-      .insert(validated.keys.map((permission_key) => ({ role_id: roleId, permission_key })));
+      .insert(validated.keys.map((permission_key) => ({ role_id: targetRoleId, permission_key })));
     if (permissionError) {
       return Response.json({ error: permissionError.message }, { status: 500 });
     }
@@ -184,24 +292,9 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const body = await request.json().catch(() => null);
-  const businessId = typeof body?.businessId === "string" ? body.businessId : "";
-  const roleId = typeof body?.roleId === "string" ? body.roleId : "";
-
-  if (!businessId || !roleId) {
-    return Response.json({ error: "businessId and roleId are required." }, { status: 400 });
-  }
-
-  const permission = await requireBusinessPermission(businessId, "roles.manage");
-  if ("response" in permission) return permission.response;
-
-  const { error } = await permission.supabase
-    .from("business_roles")
-    .update({ status: "inactive" })
-    .eq("id", roleId)
-    .eq("business_id", businessId)
-    .eq("is_system", false);
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ ok: true });
+  await request.json().catch(() => null);
+  return Response.json(
+    { error: "Role deletion is disabled. Edit the role status instead." },
+    { status: 405 }
+  );
 }

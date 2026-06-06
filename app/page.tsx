@@ -5,7 +5,7 @@ import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 import { HomeFeaturedCarousel } from "@/components/HomeFeaturedCarousel";
 import { MetricRibbon } from "@/components/PortalCharts";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import type { Class, Staff } from "@/types";
+import type { Class, ClassMarketplaceSponsor, Staff } from "@/types";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +32,8 @@ interface HomeClassRow {
   status: string;
   tagline: string | null;
   image_url: string | null;
+  artwork_variant?: string | null;
+  artwork_text_color?: string | null;
   featured: boolean;
   featured_position: number | null;
   featured_label: string | null;
@@ -64,6 +66,53 @@ interface HomeStaffRow {
   public_profile_visible: boolean;
 }
 
+interface HomePublicSponsorRow {
+  id: string;
+  class_id: string;
+  sponsor_display_name?: string | null;
+  sponsor_logo_url?: string | null;
+  sponsor_cover_image_url?: string | null;
+  sponsor_message?: string | null;
+  sponsors?:
+    | {
+        sponsor_name?: string | null;
+        logo_url?: string | null;
+        cover_image_url?: string | null;
+      }
+    | Array<{
+        sponsor_name?: string | null;
+        logo_url?: string | null;
+        cover_image_url?: string | null;
+      }>
+    | null;
+}
+
+function isSchemaColumnMissing(error: { message?: string; code?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42703" ||
+    error?.code === "42P01" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("column")
+  );
+}
+
+function sponsorsByClass(rows: HomePublicSponsorRow[]) {
+  return rows.reduce<Record<string, ClassMarketplaceSponsor[]>>((acc, row) => {
+    const joined = Array.isArray(row.sponsors) ? row.sponsors[0] : row.sponsors;
+    acc[row.class_id] = acc[row.class_id] ?? [];
+    acc[row.class_id].push({
+      id: row.id,
+      displayName: row.sponsor_display_name || joined?.sponsor_name || "Sponsor",
+      logoUrl: row.sponsor_logo_url || joined?.logo_url || null,
+      coverImageUrl: row.sponsor_cover_image_url || joined?.cover_image_url || null,
+      message: row.sponsor_message || null,
+    });
+    return acc;
+  }, {});
+}
+
 function toHomeClass(row: HomeClassRow, classStaffByClass: Record<string, string[]>): Class {
   const linkedStaffIds = classStaffByClass[row.id] ?? [];
   const staffIds = linkedStaffIds.length > 0 ? linkedStaffIds : row.staff_id ? [row.staff_id] : [];
@@ -87,6 +136,8 @@ function toHomeClass(row: HomeClassRow, classStaffByClass: Record<string, string
     status: row.status as Class["status"],
     tagline: row.tagline ?? undefined,
     imageUrl: row.image_url ?? undefined,
+    artworkVariant: row.artwork_variant === "alternate" ? "alternate" : "primary",
+    artworkTextColor: row.artwork_text_color ?? undefined,
     featured: row.featured,
     featuredPosition: row.featured_position ?? undefined,
     featuredLabel: row.featured_label ?? undefined,
@@ -117,24 +168,40 @@ function toHomeStaff(row: HomeStaffRow): Staff {
 
 export default async function Home() {
   const supabase = await createSupabaseServerClient();
+  const { data: authData } = await supabase.auth.getUser();
+  let viewerRole: string | null = null;
+  if (authData.user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", authData.user.id)
+      .maybeSingle();
+    viewerRole = profile?.role ?? null;
+  }
+  const showStudioPromo = viewerRole !== "customer";
   const today = new Date().toISOString().split("T")[0];
-  const classSelect =
+  const classSelectWithArtwork =
+    "id, business_id, title, description, category, instructor_name, staff_id, date, start_time, end_time, price, capacity, booked_count, location, status, tagline, image_url, artwork_variant, artwork_text_color, featured, featured_position, featured_label, featured_until, browse_featured, browse_position, businesses!inner(business_name, status, is_marketplace_visible)";
+  const classSelectFallback =
     "id, business_id, title, description, category, instructor_name, staff_id, date, start_time, end_time, price, capacity, booked_count, location, status, tagline, image_url, featured, featured_position, featured_label, featured_until, browse_featured, browse_position, businesses!inner(business_name, status, is_marketplace_visible)";
 
-  const [{ data: liveRows }, { data: featuredRows }, { data: bizRows }] = await Promise.all([
-    supabase
+  function liveClassesQuery(select: string) {
+    return supabase
       .from("classes")
-      .select(classSelect)
+      .select(select)
       .eq("status", "published")
       .eq("is_admin_hidden", false)
       .eq("businesses.status", "active")
       .eq("businesses.is_marketplace_visible", true)
       .gte("date", today)
       .order("date", { ascending: true })
-      .limit(9),
-    supabase
+      .limit(9);
+  }
+
+  function featuredClassesQuery(select: string) {
+    return supabase
       .from("classes")
-      .select(classSelect)
+      .select(select)
       .eq("status", "published")
       .eq("is_admin_hidden", false)
       .eq("featured", true)
@@ -144,7 +211,12 @@ export default async function Home() {
       .or(`featured_until.is.null,featured_until.gte.${today}`)
       .order("featured_position", { ascending: true, nullsFirst: false })
       .order("date", { ascending: true })
-      .limit(8),
+      .limit(8);
+  }
+
+  let [liveResult, featuredResult, { data: bizRows }] = await Promise.all([
+    liveClassesQuery(classSelectWithArtwork),
+    featuredClassesQuery(classSelectWithArtwork),
     supabase
       .from("businesses")
       .select("id, business_name")
@@ -152,17 +224,28 @@ export default async function Home() {
       .eq("is_marketplace_visible", true),
   ]);
 
+  if (
+    (liveResult.error && isSchemaColumnMissing(liveResult.error)) ||
+    (featuredResult.error && isSchemaColumnMissing(featuredResult.error))
+  ) {
+    [liveResult, featuredResult] = await Promise.all([
+      liveClassesQuery(classSelectFallback),
+      featuredClassesQuery(classSelectFallback),
+    ]);
+  }
+
   const bizMap: Record<string, string> = {};
   for (const b of bizRows ?? []) bizMap[b.id] = b.business_name;
 
-  const liveClassRows = (liveRows ?? []) as unknown as HomeClassRow[];
-  const featuredClassRows = (featuredRows ?? []) as unknown as HomeClassRow[];
+  const liveClassRows = (liveResult.data ?? []) as unknown as HomeClassRow[];
+  const featuredClassRows = (featuredResult.data ?? []) as unknown as HomeClassRow[];
   const allRows = [...liveClassRows, ...featuredClassRows];
   const uniqueRows = Array.from(
     new Map(allRows.map((row) => [row.id, row])).values()
   );
   const classIds = uniqueRows.map((row) => row.id);
   let classStaffRows: HomeClassStaffRow[] = [];
+  let publicSponsorRows: HomePublicSponsorRow[] = [];
   if (classIds.length > 0) {
     const { data } = await supabase
       .from("class_staff")
@@ -170,6 +253,28 @@ export default async function Home() {
       .in("class_id", classIds)
       .order("is_primary", { ascending: false });
     classStaffRows = (data as HomeClassStaffRow[] | null) ?? [];
+
+    const sponsorSelectWithCover =
+      "id, class_id, sponsor_display_name, sponsor_logo_url, sponsor_cover_image_url, sponsor_message, sponsors(sponsor_name, logo_url, cover_image_url)";
+    const sponsorSelectFallback =
+      "id, class_id, sponsor_display_name, sponsor_logo_url, sponsor_message, sponsors(sponsor_name, logo_url)";
+    let sponsorResult: { data: HomePublicSponsorRow[] | null; error: any } = await supabase
+      .from("class_sponsors")
+      .select(sponsorSelectWithCover)
+      .in("class_id", classIds)
+      .eq("show_sponsor_publicly", true)
+      .order("created_at", { ascending: true });
+    if (sponsorResult.error && isSchemaColumnMissing(sponsorResult.error)) {
+      sponsorResult = await supabase
+        .from("class_sponsors")
+        .select(sponsorSelectFallback)
+        .in("class_id", classIds)
+        .eq("show_sponsor_publicly", true)
+        .order("created_at", { ascending: true });
+    }
+    if (!sponsorResult.error) {
+      publicSponsorRows = (sponsorResult.data as HomePublicSponsorRow[] | null) ?? [];
+    }
   }
 
   const classStaffByClass = classStaffRows.reduce<Record<string, string[]>>(
@@ -204,10 +309,15 @@ export default async function Home() {
   }
 
   const staffById = new Map(staffRows.map((row) => [row.id, toHomeStaff(row)]));
-  const liveClasses = liveClassRows.map((row) => toHomeClass(row, classStaffByClass));
-  const homepageFeaturedClasses = featuredClassRows.map((row) =>
-    toHomeClass(row, classStaffByClass)
-  );
+  const sponsorMap = sponsorsByClass(publicSponsorRows);
+  const liveClasses = liveClassRows.map((row) => ({
+    ...toHomeClass(row, classStaffByClass),
+    marketplaceSponsors: sponsorMap[row.id] ?? [],
+  }));
+  const homepageFeaturedClasses = featuredClassRows.map((row) => ({
+    ...toHomeClass(row, classStaffByClass),
+    marketplaceSponsors: sponsorMap[row.id] ?? [],
+  }));
   const instructorsByClassId = uniqueRows.reduce<Record<string, Staff[]>>((acc, row) => {
     const ids = classStaffByClass[row.id] ?? [];
     acc[row.id] = ids
@@ -355,7 +465,7 @@ export default async function Home() {
           )}
         </section>
 
-        <section className="mt-10 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <section className={`mt-10 grid gap-5 ${showStudioPromo ? "lg:grid-cols-[1.1fr_0.9fr]" : ""}`}>
           <div className="rounded-[2rem] bg-slate-950 p-6 text-white shadow-2xl sm:p-8">
             <p className="text-sm font-black uppercase text-teal-200">Customer flow</p>
             <h2 className="mt-2 text-3xl font-black sm:text-4xl">A booking path that feels quick.</h2>
@@ -374,6 +484,7 @@ export default async function Home() {
             </div>
           </div>
 
+          {showStudioPromo && (
           <div className="visual-panel rounded-[2rem] p-6 sm:p-8">
             <p className="text-sm font-black uppercase text-indigo-600 dark:text-indigo-300">
               For studios
@@ -392,6 +503,7 @@ export default async function Home() {
               Open Owner Studio
             </Link>
           </div>
+          )}
         </section>
       </section>
     </main>

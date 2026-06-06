@@ -34,8 +34,6 @@ export default function StaffRolesPage() {
   const [editColor, setEditColor] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
   async function load() {
     if (!currentBusiness) return;
     const { data } = await supabase
@@ -90,13 +88,6 @@ export default function StaffRolesPage() {
     }).eq("id", id);
     setSaving(false);
     setEditingId(null);
-    await load();
-  }
-
-  async function handleDelete(id: string) {
-    setDeletingId(id);
-    await supabase.from("business_staff_roles").delete().eq("id", id);
-    setDeletingId(null);
     await load();
   }
 
@@ -204,13 +195,6 @@ export default function StaffRolesPage() {
                         className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100"
                       >
                         Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(role.id)}
-                        disabled={deletingId === role.id}
-                        className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-500 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {deletingId === role.id ? "…" : "Delete"}
                       </button>
                     </div>
                   </div>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAppStore } from "@/lib/appStore";
 import { formatDate, formatTime, isFutureDate } from "@/lib/utils";
-import { ClassImageTemplate } from "@/components/ClassImageTemplate";
+import { ClassImageTemplate, getClassCategoryTemplate } from "@/components/ClassImageTemplate";
 import BookingForm from "./BookingForm";
 
 export default function BookClassPage() {
@@ -85,6 +85,12 @@ export default function BookClassPage() {
   const business = businesses.find((b) => b.id === cls.businessId);
   const businessName = business?.publicDisplayName ?? business?.businessName ?? "Unknown Business";
   const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
+  const classArtwork = getClassCategoryTemplate(cls.category);
+  const fallbackArtworkUrl =
+    cls.artworkVariant === "alternate"
+      ? classArtwork.alternateImageUrl ?? classArtwork.imageUrl ?? "/art/vibepass-marketplace-hero.png"
+      : classArtwork.imageUrl ?? classArtwork.alternateImageUrl ?? "/art/vibepass-marketplace-hero.png";
+  const heroImageUrl = cls.imageUrl || fallbackArtworkUrl;
 
   return (
     <main className="min-h-screen bg-white px-4 py-7 sm:px-6">
@@ -103,13 +109,13 @@ export default function BookClassPage() {
                 title={cls.title}
                 category={cls.category}
                 instructorName={cls.instructorName}
-                className="absolute inset-0 h-full w-full rounded-none"
+                className="pointer-events-none absolute inset-0 h-full w-full rounded-none"
                 backgroundOnly
+                imageUrl={heroImageUrl}
+                artworkVariant={cls.artworkVariant}
+                textColor={cls.artworkTextColor}
               />
-              {cls.imageUrl && (
-                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/72 via-black/18 to-black/5" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/74 via-black/24 to-black/8" />
               <div className="absolute left-5 top-5 flex flex-wrap gap-2">
                 <span className="rounded-full bg-violet-600 px-4 py-2 text-xs font-black uppercase text-white">{cls.category}</span>
                 {cls.featured && <span className="rounded-full bg-amber-300 px-4 py-2 text-xs font-black text-amber-950">Featured</span>}

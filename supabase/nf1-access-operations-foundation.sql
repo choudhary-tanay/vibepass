@@ -390,6 +390,7 @@ VALUES
   ('classes.create', 'Create classes', 'Create classes or proposals.', 'business', 'Class Management', false),
   ('classes.edit', 'Edit classes', 'Update class details.', 'business', 'Class Management', false),
   ('classes.publish', 'Publish classes', 'Publish classes to the marketplace.', 'business', 'Class Publishing', true),
+  ('booking_forms.manage', 'Manage booking forms', 'Create, edit, and attach class booking form templates.', 'business', 'Booking Forms', false),
   ('bookings.view', 'View bookings', 'Read business bookings.', 'business', 'Booking Management', false),
   ('bookings.manage', 'Manage bookings', 'Update booking status and operations.', 'business', 'Booking Management', false),
   ('customers.view', 'View customers', 'See customer lists and booking context.', 'business', 'Customer Management', false),
@@ -404,6 +405,7 @@ VALUES
   ('venues.manage', 'Manage venues', 'Create and update venues.', 'business', 'Venue Management', false),
   ('venues.global.manage', 'Manage global venues', 'Create and manage platform/global venues.', 'platform', 'Global Venue Usage', true),
   ('branding.manage', 'Manage branding', 'Update business logo and white-label brand settings.', 'business', 'White-label Branding', true),
+  ('attendance.manage', 'Manage attendance', 'Mark attendance and add walk-ins for class sessions.', 'business', 'Attendance', false),
   ('notifications.view', 'View notifications', 'Read portal notifications.', 'shared', 'Notifications', false),
   ('notifications.manage', 'Manage notifications', 'Create and mark portal notifications.', 'shared', 'Notifications', false)
 ON CONFLICT (key) DO UPDATE SET
@@ -518,6 +520,7 @@ CROSS JOIN (
     ('classes.view'),
     ('classes.create'),
     ('classes.edit'),
+    ('booking_forms.manage'),
     ('bookings.view'),
     ('bookings.manage'),
     ('customers.view'),
@@ -527,7 +530,8 @@ CROSS JOIN (
     ('venues.manage'),
     ('sponsors.manage'),
     ('notifications.view'),
-    ('notifications.manage')
+    ('notifications.manage'),
+    ('attendance.manage')
 ) AS allowed(permission_key)
 WHERE br.business_id IS NULL
   AND br.role_key = 'management'
@@ -543,7 +547,8 @@ CROSS JOIN (
     ('schedule.view'),
     ('staff.earnings.view'),
     ('venues.view'),
-    ('notifications.view')
+    ('notifications.view'),
+    ('attendance.manage')
 ) AS allowed(permission_key)
 WHERE br.business_id IS NULL
   AND br.role_key = 'instructor'

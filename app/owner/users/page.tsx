@@ -33,6 +33,7 @@ interface RoleForm {
   roleName: string;
   description: string;
   permissions: string[];
+  status: "active" | "inactive";
 }
 
 const ACCESS_LEVELS: { value: BusinessAccessLevel; label: string }[] = [
@@ -61,7 +62,9 @@ export default function OwnerUsersPage() {
     roleName: "",
     description: "",
     permissions: [],
+    status: "active",
   });
+  const [editingRoleId, setEditingRoleId] = useState("");
   const [edits, setEdits] = useState<Record<string, { roleId: string; accessLevel: BusinessAccessLevel; status: "active" | "inactive" }>>({});
   const [userSearch, setUserSearch] = useState("");
 
@@ -159,6 +162,33 @@ export default function OwnerUsersPage() {
     }));
   }
 
+  function setRoleGroupPermissions(keys: string[], checked: boolean) {
+    setRoleForm((prev) => {
+      const next = new Set(prev.permissions);
+      keys.forEach((key) => {
+        if (checked) next.add(key);
+        else next.delete(key);
+      });
+      return { ...prev, permissions: [...next] };
+    });
+  }
+
+  function resetRoleForm() {
+    setEditingRoleId("");
+    setRoleForm({ roleName: "", description: "", permissions: [], status: "active" });
+  }
+
+  function startRoleEdit(role: BusinessRole) {
+    setEditingRoleId(role.id);
+    setRoleForm({
+      roleName: role.roleName,
+      description: role.description ?? "",
+      permissions: role.permissions,
+      status: role.status,
+    });
+    document.getElementById("role-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   async function submitInvite(event: React.FormEvent) {
     event.preventDefault();
     if (!currentBusiness) return;
@@ -188,23 +218,28 @@ export default function OwnerUsersPage() {
     await loadAccess();
   }
 
-  async function createRole(event: React.FormEvent) {
+  async function saveRole(event: React.FormEvent) {
     event.preventDefault();
     if (!currentBusiness || !roleForm.roleName.trim()) return;
     setSaving(true);
     setError("");
+    const isEditingRole = Boolean(editingRoleId);
     const response = await fetch("/api/owner/roles", {
-      method: "POST",
+      method: isEditingRole ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...roleForm, businessId: currentBusiness.id }),
+      body: JSON.stringify({
+        ...roleForm,
+        businessId: currentBusiness.id,
+        roleId: editingRoleId || undefined,
+      }),
     });
     const data = await response.json().catch(() => ({}));
     setSaving(false);
     if (!response.ok) {
-      setError(data.error ?? "Could not create role.");
+      setError(data.error ?? (isEditingRole ? "Could not update role." : "Could not create role."));
       return;
     }
-    setRoleForm({ roleName: "", description: "", permissions: [] });
+    resetRoleForm();
     await loadAccess();
   }
 
@@ -510,25 +545,89 @@ export default function OwnerUsersPage() {
               </form>
             </section>
 
-            <section className="rounded-2xl bg-white p-5 shadow-sm">
-              <h2 className="text-lg font-black text-slate-950">Custom role</h2>
-              <form onSubmit={createRole} className="mt-4 grid gap-4">
+            <section id="role-editor" className="rounded-2xl bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black text-slate-950">
+                    {editingRoleId ? "Edit role permissions" : "Custom role"}
+                  </h2>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">
+                    {editingRoleId
+                      ? "Change role details and permissions. No delete action is available."
+                      : "Create a reusable role with the full business feature set."}
+                  </p>
+                </div>
+                {editingRoleId && (
+                  <button
+                    type="button"
+                    onClick={resetRoleForm}
+                    className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+                  >
+                    New role
+                  </button>
+                )}
+              </div>
+              <form onSubmit={saveRole} className="mt-4 grid gap-4">
                 <input
                   value={roleForm.roleName}
                   onChange={(event) => setRoleForm((prev) => ({ ...prev, roleName: event.target.value }))}
                   placeholder="Role name"
                   className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400"
                 />
-                <input
-                  value={roleForm.description}
-                  onChange={(event) => setRoleForm((prev) => ({ ...prev, description: event.target.value }))}
-                  placeholder="Description"
-                  className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400"
-                />
+                <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
+                  <input
+                    value={roleForm.description}
+                    onChange={(event) => setRoleForm((prev) => ({ ...prev, description: event.target.value }))}
+                    placeholder="Description"
+                    className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400"
+                  />
+                  <select
+                    value={roleForm.status}
+                    onChange={(event) => setRoleForm((prev) => ({ ...prev, status: event.target.value as RoleForm["status"] }))}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-indigo-400"
+                  >
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRoleGroupPermissions((payload?.permissions ?? []).map((permission) => permission.key), true)}
+                    className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 hover:bg-indigo-100"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoleGroupPermissions((payload?.permissions ?? []).map((permission) => permission.key), false)}
+                    className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+                  >
+                    Clear
+                  </button>
+                </div>
                 <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 p-3">
                   {permissionGroups.map(([group, permissions]) => (
                     <div key={group} className="mb-4 last:mb-0">
-                      <p className="mb-2 text-[11px] font-black uppercase text-slate-400">{group}</p>
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-black uppercase text-slate-400">{group}</p>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setRoleGroupPermissions(permissions.map((permission) => permission.key), true)}
+                            className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500 hover:bg-indigo-50 hover:text-indigo-700"
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRoleGroupPermissions(permissions.map((permission) => permission.key), false)}
+                            className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500 hover:bg-slate-200"
+                          >
+                            None
+                          </button>
+                        </div>
+                      </div>
                       <div className="grid gap-2">
                         {permissions.map((permission) => (
                           <label
@@ -556,7 +655,7 @@ export default function OwnerUsersPage() {
                   disabled={saving || !roleForm.roleName.trim()}
                   className="rounded-full bg-slate-950 px-5 py-3 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50"
                 >
-                  Create role
+                  {editingRoleId ? "Save role changes" : "Create role"}
                 </button>
               </form>
             </section>
@@ -596,6 +695,13 @@ export default function OwnerUsersPage() {
                     </span>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => startRoleEdit(role)}
+                  className="mt-4 w-full rounded-xl border border-indigo-200 bg-white px-4 py-2 text-xs font-black text-indigo-700 hover:bg-indigo-50"
+                >
+                  Edit permissions
+                </button>
               </div>
             ))}
           </div>

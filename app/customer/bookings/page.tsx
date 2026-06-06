@@ -88,6 +88,43 @@ export default function CustomerBookingsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  const userEmail = user?.email?.toLowerCase() ?? "";
+  const myBookings = useMemo(
+    () => (userEmail ? bookings.filter((b) => b.customerEmail.toLowerCase() === userEmail) : []),
+    [bookings, userEmail]
+  );
+
+  function getClass(classId: string) {
+    return classes.find((c) => c.id === classId);
+  }
+
+  function isUpcomingBooking(b: (typeof myBookings)[number]) {
+    const cls = getClass(b.classId);
+    return b.bookingStatus === "confirmed" && cls && isFutureDate(cls.date);
+  }
+
+  const filtered = useMemo(() => {
+    let list = myBookings;
+    if (statusFilter !== "all") {
+      if (statusFilter === "upcoming") {
+        list = list.filter((b) => isUpcomingBooking(b));
+      } else if (statusFilter === "past") {
+        list = list.filter((b) => !isUpcomingBooking(b));
+      } else {
+        list = list.filter((b) => b.bookingStatus === statusFilter);
+      }
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((b) => {
+        const cls = getClass(b.classId);
+        return cls?.title.toLowerCase().includes(q);
+      });
+    }
+    return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myBookings, statusFilter, search, classes]);
+
   if (loading) {
     return (
       <main className="min-h-screen bg-gray-50 px-6 py-10">
@@ -116,13 +153,6 @@ export default function CustomerBookingsPage() {
         </div>
       </main>
     );
-  }
-
-  // Customers only see bookings where their email matches (enforced by RLS)
-  const myBookings = bookings.filter((b) => b.customerEmail === user.email);
-
-  function getClass(classId: string) {
-    return classes.find((c) => c.id === classId);
   }
 
   async function handleCancel(bookingId: string) {
@@ -158,34 +188,6 @@ export default function CustomerBookingsPage() {
       year: "numeric",
     });
   }
-
-  function isUpcomingBooking(b: (typeof myBookings)[number]) {
-    const cls = getClass(b.classId);
-    return b.bookingStatus === "confirmed" && cls && isFutureDate(cls.date);
-  }
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const filtered = useMemo(() => {
-    let list = myBookings;
-    if (statusFilter !== "all") {
-      if (statusFilter === "upcoming") {
-        list = list.filter((b) => isUpcomingBooking(b));
-      } else if (statusFilter === "past") {
-        list = list.filter((b) => !isUpcomingBooking(b));
-      } else {
-        list = list.filter((b) => b.bookingStatus === statusFilter);
-      }
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter((b) => {
-        const cls = getClass(b.classId);
-        return cls?.title.toLowerCase().includes(q);
-      });
-    }
-    return list;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myBookings, statusFilter, search]);
 
   const toolbar = (
     <select

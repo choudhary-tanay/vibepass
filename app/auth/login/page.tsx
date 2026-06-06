@@ -262,7 +262,7 @@ export default function LoginPage() {
             </p>
             <p>
               <Link href="/auth/change-password" className="text-slate-400 hover:text-slate-600 hover:underline">
-                Change password
+                Forgot / change password
               </Link>
             </p>
           </div>

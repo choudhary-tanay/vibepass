@@ -57,30 +57,42 @@ export default function OwnerProfilePage() {
     return supabase.storage.from("business-logos").getPublicUrl(data.path).data.publicUrl;
   }
 
+  async function uploadCover() {
+    if (!coverFile || !currentBusiness) return undefined;
+    const ext = coverFile.name.split(".").pop() ?? "jpg";
+    const path = `${currentBusiness.id}-cover-${Date.now()}.${ext}`;
+    const { data, error: uploadError } = await supabase.storage
+      .from("business-covers")
+      .upload(path, coverFile, { upsert: true });
+    if (uploadError || !data) {
+      setNotice("Cover upload failed — paste a public URL instead.");
+      return undefined;
+    }
+    return supabase.storage.from("business-covers").getPublicUrl(data.path).data.publicUrl;
+  }
+
   async function saveBrand() {
     if (!currentBusiness) return;
     setSaving(true);
     setError(null);
     setNotice(null);
-    const uploadedLogoUrl = await uploadLogo();
+    const [uploadedLogoUrl, uploadedCoverUrl] = await Promise.all([uploadLogo(), uploadCover()]);
+    const finalCoverUrl = uploadedCoverUrl ?? coverUrl.trim();
+    if (uploadedCoverUrl) setCoverUrl(uploadedCoverUrl);
     const ok = await updateBusiness(currentBusiness.id, {
       publicDisplayName: displayName.trim() || undefined,
       brandTagline: tagline.trim() || undefined,
       brandColor: primaryColor,
       brandSecondaryColor: secondaryColor,
       logoUrl: (uploadedLogoUrl ?? logoUrl.trim()) || undefined,
-      coverImageUrl: coverUrl.trim() || undefined,
+      coverImageUrl: finalCoverUrl || undefined,
     });
     setSaving(false);
     if (!ok) {
       setError("Could not save profile. Please try again.");
       return;
     }
-    setNotice(
-      coverFile && !coverUrl.trim()
-        ? "Brand saved. Cover image is preview-only until a cover storage bucket is configured."
-        : "Brand profile saved."
-    );
+    setNotice("Brand profile saved.");
   }
 
   if (!currentBusiness) {
@@ -152,7 +164,7 @@ export default function OwnerProfilePage() {
 
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                   <h2 className="text-sm font-black uppercase text-slate-500">Cover image</h2>
-                  <p className="mt-1 text-xs font-semibold text-slate-400">Recommended 1600 x 600. Upload previews locally.</p>
+                  <p className="mt-1 text-xs font-semibold text-slate-400">Recommended 1600 x 600.</p>
                   <div className="mt-4 aspect-[8/3] overflow-hidden rounded-2xl bg-white shadow-sm">
                     {coverSrc ? (
                       <img src={coverSrc} alt="" className="h-full w-full object-cover" />
@@ -172,7 +184,6 @@ export default function OwnerProfilePage() {
                           if (!file) return;
                           setCoverFile(file);
                           previewFile(file, setCoverPreview);
-                          setNotice("Cover upload is local preview only until cover image storage is configured.");
                         }}
                       />
                     </label>

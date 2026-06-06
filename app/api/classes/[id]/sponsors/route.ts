@@ -6,32 +6,52 @@ const supabaseAdmin = createClient(
   { auth: { persistSession: false } }
 );
 
+function isSchemaColumnMissing(error: { message?: string; code?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42703" ||
+    error?.code === "42P01" ||
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("column")
+  );
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { data, error } = await supabaseAdmin
+  let result: { data: any[] | null; error: any } = await supabaseAdmin
     .from("class_sponsors")
-    .select("id, sponsor_display_name, sponsor_logo_url, sponsor_message, sponsors(sponsor_name, logo_url)")
+    .select("id, sponsor_display_name, sponsor_logo_url, sponsor_cover_image_url, sponsor_message, sponsors(sponsor_name, logo_url, cover_image_url)")
     .eq("class_id", id)
     .eq("show_sponsor_publicly", true)
     .order("created_at", { ascending: true });
+  if (result.error && isSchemaColumnMissing(result.error)) {
+    result = await supabaseAdmin
+      .from("class_sponsors")
+      .select("id, sponsor_display_name, sponsor_logo_url, sponsor_message, sponsors(sponsor_name, logo_url)")
+      .eq("class_id", id)
+      .eq("show_sponsor_publicly", true)
+      .order("created_at", { ascending: true });
+  }
 
-  if (error) {
-    const message = error.message.toLowerCase().includes("class_sponsors")
+  if (result.error) {
+    const message = result.error.message.toLowerCase().includes("class_sponsors")
       ? "Sponsors are not available yet."
-      : error.message;
+      : result.error.message;
     return Response.json({ error: message }, { status: 500 });
   }
 
   return Response.json({
-    sponsors: (data ?? []).map((item) => {
+    sponsors: (result.data ?? []).map((item) => {
       const sponsor = Array.isArray(item.sponsors) ? item.sponsors[0] : item.sponsors;
       return {
         id: item.id,
         displayName: item.sponsor_display_name || sponsor?.sponsor_name || "Sponsor",
         logoUrl: item.sponsor_logo_url || sponsor?.logo_url || null,
+        coverImageUrl: item.sponsor_cover_image_url || sponsor?.cover_image_url || null,
         message: item.sponsor_message || null,
       };
     }),

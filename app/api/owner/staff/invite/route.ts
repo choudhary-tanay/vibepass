@@ -18,6 +18,27 @@ function isSchemaMissing(error: { code?: string; message?: string } | null | und
   );
 }
 
+async function findExistingStaff(businessId: string, email: string) {
+  let result: { data: Array<{ id: string; status: string | null; user_id?: string | null }> | null; error: any } =
+    await supabaseAdmin
+      .from("staff")
+      .select("id, status, user_id")
+      .eq("business_id", businessId)
+      .eq("email", email)
+      .limit(1);
+
+  if (result.error && isSchemaMissing(result.error)) {
+    result = await supabaseAdmin
+      .from("staff")
+      .select("id, status")
+      .eq("business_id", businessId)
+      .eq("email", email)
+      .limit(1);
+  }
+
+  return result;
+}
+
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -54,23 +75,18 @@ export async function POST(req: Request) {
 
   const nowIso = new Date().toISOString();
   const [existingStaff, existingInvite, existingBusinessUser] = await Promise.all([
-    supabaseAdmin
-      .from("staff")
-      .select("id, status")
-      .eq("business_id", businessId)
-      .eq("email", normalizedEmail)
-      .limit(1),
+    findExistingStaff(businessId, normalizedEmail),
     supabaseAdmin
       .from("staff_invites")
-      .select("id, accepted_at, expires_at")
+      .select("id, token, accepted_at, expires_at")
       .eq("business_id", businessId)
       .eq("email", normalizedEmail)
       .is("accepted_at", null)
-      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
       .limit(1),
     supabaseAdmin
       .from("business_users")
-      .select("id, status")
+      .select("id, status, user_id, accepted_at")
       .eq("business_id", businessId)
       .eq("email", normalizedEmail)
       .in("status", ["active", "invited"])
@@ -87,18 +103,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: existingBusinessUser.error.message }, { status: 500 });
   }
 
-  if ((existingStaff.data ?? []).length > 0) {
+  const staffRow = (existingStaff.data ?? [])[0];
+  if (staffRow?.user_id) {
     return NextResponse.json(
-      { error: "A staff member with this email already exists for this business." },
+      { error: "This staff member already has portal access." },
       { status: 409 }
     );
   }
 
-  if ((existingInvite.data ?? []).length > 0 || (existingBusinessUser.data ?? []).length > 0) {
+  const businessUserRow = (existingBusinessUser.data ?? [])[0];
+  if (businessUserRow?.status === "active" && (businessUserRow.user_id || businessUserRow.accepted_at)) {
     return NextResponse.json(
-      { error: "An active invite already exists for this email." },
+      { error: "This staff member already has portal access." },
       { status: 409 }
     );
+  }
+
+  const latestInvite = (existingInvite.data ?? [])[0];
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  if (latestInvite?.token && latestInvite.expires_at && new Date(latestInvite.expires_at) > new Date(nowIso)) {
+    const inviteUrl = `${appUrl}/staff/invite/${latestInvite.token}`;
+    return NextResponse.json({ ok: true, inviteUrl, token: latestInvite.token, reused: true });
   }
 
   // Create invite row (UUID token, 7-day expiry)
@@ -121,7 +146,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const inviteUrl = `${appUrl}/staff/invite/${invite.token}`;
 
   let accessWarning: string | null = null;
