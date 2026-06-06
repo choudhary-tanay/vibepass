@@ -170,6 +170,8 @@ Use this checklist after bug fixes or before staging deployment decisions.
 - [ ] Draft class stays hidden publicly.
 - [ ] Published class follows business approval rules.
 - [ ] Image upload or fallback image works.
+- [ ] Editing an uploaded class image to default/category artwork clears `classes.image_url`.
+- [ ] Editing default primary/alternate artwork persists `classes.artwork_variant`.
 - [ ] Owner classes list loads.
 - [ ] Owner bookings page loads.
 - [ ] Owner analytics loads.

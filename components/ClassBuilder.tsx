@@ -131,6 +131,8 @@ type SubmitIntent =
   | "proposal_draft"
   | "proposal_submit";
 
+type CoverImageSource = "uploaded" | "fallback";
+
 interface ClassBuilderProps {
   mode: ClassBuilderMode;
   classId?: string;
@@ -357,6 +359,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [existingImageUrl, setExistingImageUrl] = useState<string | null>(null);
+  const [coverImageSource, setCoverImageSource] = useState<CoverImageSource>("fallback");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageUploadWarning, setImageUploadWarning] = useState<string | null>(null);
   const [coverArtworkVariant, setCoverArtworkVariant] =
@@ -710,7 +713,9 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
             : "",
         currency: nextCurrency,
       });
-      setExistingImageUrl(typeof row.image_url === "string" ? row.image_url : null);
+      const savedImageUrl = typeof row.image_url === "string" && row.image_url ? row.image_url : null;
+      setExistingImageUrl(savedImageUrl);
+      setCoverImageSource(savedImageUrl ? "uploaded" : "fallback");
       setCoverArtworkVariant(row.artwork_variant === "alternate" ? "alternate" : "primary");
       setCoverTextColor(typeof row.artwork_text_color === "string" && row.artwork_text_color
         ? row.artwork_text_color
@@ -934,7 +939,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
     return Object.keys(e).length === 0;
   }
 
-  async function uploadImage(): Promise<string | undefined> {
+  async function uploadImage(): Promise<string | null | undefined> {
     if (!imageFile) return undefined;
     setUploadingImage(true);
     setImageUploadWarning(null);
@@ -952,7 +957,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
           ? "Image upload skipped because the class-images bucket is missing. Run supabase/phase11-admin-safety-storage.sql, then try uploading again. The class can still be saved with the fallback image."
           : "Image upload skipped. The class can still be saved with the fallback image."
       );
-      return undefined;
+      return null;
     }
     const { data: { publicUrl } } = supabase.storage
       .from("class-images")
@@ -981,7 +986,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
     return (form.status || "draft") as ClassStatus;
   }
 
-  function buildClassPayload(imageUrl?: string): Omit<Class, "id" | "bookedCount"> {
+  function buildClassPayload(imageUrl?: string | null): Omit<Class, "id" | "bookedCount"> {
     const tags = form.tagsInput
       ? form.tagsInput.split(",").map((t) => t.trim()).filter(Boolean)
       : undefined;
@@ -998,6 +1003,13 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
         fixedClassCost: Number(fixedClassCosts[staffId]) || 0,
       };
     });
+
+    const savedImageUrl =
+      imageUrl !== undefined
+        ? imageUrl
+        : coverImageSource === "uploaded"
+          ? existingImageUrl
+          : null;
 
     return {
       businessId: builderBusiness?.id ?? "",
@@ -1048,7 +1060,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
       taxValue: Number(form.taxValue) || 0,
       expectedBookings: form.expectedBookings !== "" ? Number(form.expectedBookings) : undefined,
       currency: currency,
-      imageUrl: imageUrl ?? existingImageUrl ?? undefined,
+      imageUrl: savedImageUrl ?? null,
       artworkVariant: coverArtworkVariant,
       artworkTextColor: coverTextColor,
     };
@@ -1208,7 +1220,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
     setDraftSponsors([]);
     handlePolicyChange(defaultPolicyValue());
     setSelectedBookingTemplateId("");
-    setSaveError(null); setImagePreview(null); setImageFile(null); setExistingImageUrl(null); setImageUploadWarning(null);
+    setSaveError(null); setImagePreview(null); setImageFile(null); setExistingImageUrl(null); setCoverImageSource("fallback"); setImageUploadWarning(null);
     setCoverArtworkVariant("primary"); setCoverTextColor("#ffffff");
   }
 
@@ -1217,7 +1229,16 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
     if (file) {
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file));
+      setCoverImageSource("uploaded");
     }
+  }
+
+  function useFallbackArtwork() {
+    setImageFile(null);
+    setImagePreview(null);
+    setExistingImageUrl(null);
+    setCoverImageSource("fallback");
+    setImageUploadWarning(null);
   }
 
   const backHref = isPropose ? "/staff/classes" : "/owner/classes";
@@ -1234,6 +1255,10 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
     : "Class Created";
   const successCta = isPropose ? "Propose Another Class" : "Create Another Class";
   const savingLabel = uploadingImage ? "Uploading..." : saving ? "Saving..." : null;
+  const activeCoverImageUrl =
+    coverImageSource === "uploaded"
+      ? imagePreview ?? existingImageUrl ?? undefined
+      : undefined;
 
   if (loading || pageLoading) {
     return (
@@ -1327,7 +1352,7 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                 instructorName={displayInstructorName}
                 className="aspect-[4/3] w-full"
                 artworkVariant={coverArtworkVariant}
-                imageUrl={imagePreview ?? existingImageUrl ?? undefined}
+                imageUrl={activeCoverImageUrl}
                 textColor={coverTextColor}
               />
               <div className="p-4">
@@ -1382,32 +1407,43 @@ export default function ClassBuilder({ mode, classId }: ClassBuilderProps) {
                   <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageChange} className="sr-only" />
                 </label>
 
-                {(imagePreview || existingImageUrl) && (
-                  <div className="relative overflow-hidden rounded-xl">
-                    <ClassImageTemplate
-                      title={form.title || "Your class"}
-                      category={form.category || "Wellness"}
-                      instructorName={displayInstructorName}
-                      className="h-28 w-full"
-                      artworkVariant={coverArtworkVariant}
-                      imageUrl={imagePreview ?? existingImageUrl ?? undefined}
-                      textColor={coverTextColor}
-                    />
+                <div className="relative overflow-hidden rounded-xl">
+                  <ClassImageTemplate
+                    title={form.title || "Your class"}
+                    category={form.category || "Wellness"}
+                    instructorName={displayInstructorName}
+                    className="h-28 w-full"
+                    artworkVariant={coverArtworkVariant}
+                    imageUrl={activeCoverImageUrl}
+                    textColor={coverTextColor}
+                  />
+                  {coverImageSource === "uploaded" && (
                     <button
                       type="button"
-                      onClick={() => { setImageFile(null); setImagePreview(null); setExistingImageUrl(null); }}
+                      onClick={useFallbackArtwork}
+                      aria-label="Use default artwork"
                       className="absolute right-2 top-2 rounded-full bg-black/50 p-1 text-white hover:bg-black/70"
                     >
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
-                    {imageFile?.name && (
-                      <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2 py-0.5 text-xs font-bold text-white">
-                        {imageFile.name}
-                      </span>
-                    )}
-                  </div>
+                  )}
+                  <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2 py-0.5 text-xs font-bold text-white">
+                    {coverImageSource === "uploaded"
+                      ? imageFile?.name ?? "Uploaded artwork"
+                      : "Default category artwork"}
+                  </span>
+                </div>
+
+                {coverImageSource === "uploaded" && (
+                  <button
+                    type="button"
+                    onClick={useFallbackArtwork}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  >
+                    Use default/category artwork
+                  </button>
                 )}
 
                 {/* Artwork variant */}

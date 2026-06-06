@@ -99,7 +99,7 @@ export interface Class {
   whatToBring?: string;
   difficultyLevel?: string;
   tags?: string[];
-  imageUrl?: string;
+  imageUrl?: string | null;
   artworkVariant?: "primary" | "alternate";
   artworkTextColor?: string;
   locationType?: string;

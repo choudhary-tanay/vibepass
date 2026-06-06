@@ -111,7 +111,7 @@ export function ClassCard({
             className="absolute inset-0 h-full w-full rounded-none"
             compact
             backgroundOnly
-            imageUrl={cls.imageUrl}
+            imageUrl={cls.imageUrl ?? undefined}
             artworkVariant={cls.artworkVariant}
             textColor={cls.artworkTextColor}
           />

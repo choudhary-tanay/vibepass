@@ -81,6 +81,17 @@ These fields remain supported for compatibility and display fallbacks, but they 
 - `business_staff_roles`
 - `staff_earnings`
 
+## Class Artwork Source Of Truth
+
+Class cover artwork is owned by `classes`.
+
+- Uploaded artwork URL: `classes.image_url`.
+- Default/category artwork: `classes.image_url = null`.
+- Default primary vs secondary style: `classes.artwork_variant`.
+- Artwork text color: `classes.artwork_text_color`.
+
+Create, edit, duplicate, public class cards, featured cards, detail pages, and booking pages should all follow this rule. If an owner removes an uploaded image or switches to default/category artwork, save must write `image_url = null` so stale uploaded artwork does not return on reload.
+
 ## Fields And Tables That Should No Longer Receive New Logic
 
 - `staff_earnings`: display should come from `staff_earning_snapshots`.

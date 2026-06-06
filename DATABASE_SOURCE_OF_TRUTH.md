@@ -23,6 +23,17 @@ This is the shorter operational companion to `VIBEPASS_SOURCE_OF_TRUTH_MAP.md`.
 | Notifications/reports | `notifications`, `reports`, `admin_audit_logs` |
 | Currency | `exchange_rates` |
 
+## Class Artwork Rules
+
+Class artwork is stored on `classes`:
+
+- `image_url` stores an uploaded public class image URL.
+- `image_url = null` means the app must render category/default artwork.
+- `artwork_variant` stores the primary/alternate default artwork choice.
+- `artwork_text_color` stores the artwork text color.
+
+Do not add artwork state to unrelated tables. Do not keep a stale uploaded URL when the user intentionally chooses default/category artwork.
+
 ## Snapshot Rules
 
 - Snapshot tables store historical or current calculated facts.
