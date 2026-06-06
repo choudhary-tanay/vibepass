@@ -101,20 +101,19 @@ export function ClassCard({
   return (
     <article className="group flex min-h-full flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.08)] transition-transform hover:-translate-y-1 dark:border-slate-800 dark:bg-slate-950">
       <div className="relative">
-        <div className="aspect-[16/9] overflow-hidden bg-slate-100">
-          {cls.imageUrl ? (
+        <div className="relative aspect-[16/9] overflow-hidden bg-slate-100">
+          <ClassImageTemplate
+            title={cls.title}
+            category={cls.category}
+            instructorName={cls.instructorName}
+            className="absolute inset-0 h-full w-full rounded-none"
+            compact
+            backgroundOnly
+          />
+          {cls.imageUrl && (
             <div
-              className="h-full w-full bg-cover bg-center shadow-inner"
+              className="absolute inset-0 h-full w-full bg-cover bg-center shadow-inner"
               style={{ backgroundImage: `url(${cls.imageUrl})` }}
-            />
-          ) : (
-            <ClassImageTemplate
-              title={cls.title}
-              category={cls.category}
-              instructorName={cls.instructorName}
-              className="h-full w-full rounded-none"
-              compact
-              backgroundOnly
             />
           )}
         </div>

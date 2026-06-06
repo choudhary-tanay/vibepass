@@ -267,7 +267,9 @@ export function ClassImageTemplate({
 
   const backgroundStyle = selectedImageUrl
     ? {
-        backgroundImage: `linear-gradient(90deg, rgba(0,0,0,.72), rgba(0,0,0,.2) 48%, rgba(0,0,0,.48)), url(${selectedImageUrl})`,
+        backgroundImage: backgroundOnly
+          ? `linear-gradient(90deg, rgba(15,23,42,.22), rgba(15,23,42,.04) 52%, rgba(15,23,42,.16)), url(${selectedImageUrl})`
+          : `linear-gradient(90deg, rgba(0,0,0,.72), rgba(0,0,0,.2) 48%, rgba(0,0,0,.48)), url(${selectedImageUrl})`,
       }
     : undefined;
   const textStyle = textColor ? { color: textColor } : undefined;
@@ -278,7 +280,7 @@ export function ClassImageTemplate({
       className={`relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br bg-cover bg-center ${template.gradient} ${templateTextClass} ${className}`}
       style={backgroundStyle}
     >
-      <div className="absolute inset-0 opacity-75">
+      <div className={`absolute inset-0 ${backgroundOnly ? "opacity-35" : "opacity-75"}`}>
         <TemplateMotif motif={template.motif} accent={template.accent} />
       </div>
       {!backgroundOnly && (

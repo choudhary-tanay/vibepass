@@ -99,18 +99,17 @@ export default function BookClassPage() {
         <div className="grid gap-7 lg:grid-cols-[minmax(0,1.08fr)_minmax(25rem,0.92fr)] lg:items-start">
           <section className="overflow-hidden rounded-2xl bg-white shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/75">
             <div className="relative min-h-80 lg:min-h-[26rem]">
-              {cls.imageUrl ? (
+              <ClassImageTemplate
+                title={cls.title}
+                category={cls.category}
+                instructorName={cls.instructorName}
+                className="absolute inset-0 h-full w-full rounded-none"
+                backgroundOnly
+              />
+              {cls.imageUrl && (
                 <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
-              ) : (
-                <ClassImageTemplate
-                  title={cls.title}
-                  category={cls.category}
-                  instructorName={cls.instructorName}
-                  className="absolute inset-0 h-full w-full rounded-none"
-                  backgroundOnly
-                />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/72 via-black/18 to-black/5" />
               <div className="absolute left-5 top-5 flex flex-wrap gap-2">
                 <span className="rounded-full bg-violet-600 px-4 py-2 text-xs font-black uppercase text-white">{cls.category}</span>
                 {cls.featured && <span className="rounded-full bg-amber-300 px-4 py-2 text-xs font-black text-amber-950">Featured</span>}

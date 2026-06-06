@@ -30,6 +30,8 @@ interface BookingFormField {
   options?: unknown;
 }
 
+type GuestDetailsMode = "same" | "custom";
+
 const AGE_RANGES = ["10-15", "15-25", "25-35", "35-45", "45+"];
 const GENDERS = ["Female", "Male", "Non-binary", "Prefer not to say"];
 const EXPERIENCE_LEVELS = ["Beginner", "Intermediate", "Advanced"];
@@ -42,6 +44,57 @@ const GOALS_OPTIONS = [
   "Skill learning",
   "Other",
 ];
+
+function normalizeBookingField(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function duplicatesBuiltInBookingField(field: BookingFormField) {
+  const label = normalizeBookingField(field.field_label);
+  const key = normalizeBookingField(field.field_key);
+  const combined = `${label} ${key}`.trim();
+  const exactDuplicateLabels = new Set([
+    "name",
+    "full name",
+    "customer name",
+    "participant name",
+    "attendee name",
+    "email",
+    "email address",
+    "customer email",
+    "participant email",
+    "phone",
+    "phone number",
+    "mobile",
+    "mobile number",
+    "contact number",
+    "age",
+    "age group",
+    "age range",
+    "gender",
+    "goals",
+    "goal",
+    "skill level",
+    "experience level",
+    "medical note",
+    "health note",
+    "special requirement",
+    "special requirements",
+  ]);
+
+  if (exactDuplicateLabels.has(label) || exactDuplicateLabels.has(key)) return true;
+  if (/\b(skill|experience)\b.*\blevel\b/.test(combined)) return true;
+  if (/\bage\b|\bage group\b|\bage range\b/.test(combined)) return true;
+  if (/\bgender\b/.test(combined)) return true;
+  if (/\b(goal|goals|objective|objectives)\b/.test(combined)) return true;
+  if (/\b(health|medical|accessibility|injury|pregnan|special requirement|special requirements)\b/.test(combined)) return true;
+  if (/\b(marketing|newsletter|updates|offers|consent)\b/.test(combined)) return true;
+
+  return false;
+}
 
 declare global {
   interface Window {
@@ -79,6 +132,7 @@ function AttendeeCard({
   errors: Record<string, string>;
   isFirst: boolean;
 }) {
+  const nameRequired = isFirst;
   const emailRequired = isFirst;
   const phoneRequired = isFirst;
   return (
@@ -100,13 +154,13 @@ function AttendeeCard({
 
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-slate-700">
-          Full name <span className="text-red-500">*</span>
+          Full name {nameRequired ? <span className="text-red-500">*</span> : <span className="text-xs font-medium text-slate-400">(optional)</span>}
         </label>
         <input
           type="text"
           value={attendee.name}
           onChange={(e) => onChange("name", e.target.value)}
-          placeholder="Enter your full name"
+          placeholder={nameRequired ? "Enter your full name" : "Optional - leave blank to use your details"}
           className={`w-full rounded-xl border px-4 py-3 text-slate-900 placeholder-slate-400 outline-none focus:ring-2 focus:ring-violet-200 ${
             errors[`${index}.name`] ? "border-red-400" : "border-slate-200"
           }`}
@@ -177,6 +231,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [customFields, setCustomFields] = useState<BookingFormField[]>([]);
   const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({});
+  const [guestDetailsMode, setGuestDetailsMode] = useState<GuestDetailsMode>("same");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -192,6 +247,10 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   const isPaid = cls.price > 0 && (isDummyMode || isRazorpayMode);
   const seatsLeft = Math.max(0, cls.capacity - cls.bookedCount);
   const currency = cls.currency ?? "INR";
+  const visibleCustomFields = customFields.filter(
+    (field) => !duplicatesBuiltInBookingField(field)
+  );
+  const extraSeatCount = Math.max(0, attendees.length - 1);
 
   useEffect(() => {
     let active = true;
@@ -217,10 +276,6 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     });
   }
 
-  function addAttendee() {
-    setAttendees((prev) => [...prev, { name: "", email: "", phone: "" }]);
-  }
-
   function setSeatCount(nextCount: number) {
     const safeCount = Math.max(1, Math.min(seatsLeft || 1, nextCount));
     setAttendees((prev) => {
@@ -237,8 +292,30 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     });
   }
 
+  function chooseGuestDetailsMode(mode: GuestDetailsMode) {
+    setGuestDetailsMode(mode);
+    if (mode === "same") {
+      setErrors((prev) => {
+        const next: Record<string, string> = {};
+        Object.entries(prev).forEach(([key, value]) => {
+          if (key.startsWith("0.") || key === "seats" || key.startsWith("custom.")) {
+            next[key] = value;
+          }
+        });
+        return next;
+      });
+    }
+  }
+
   function removeAttendee(index: number) {
     setAttendees((prev) => prev.filter((_, i) => i !== index));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[`${index}.name`];
+      delete next[`${index}.email`];
+      delete next[`${index}.phone`];
+      return next;
+    });
   }
 
   function validate(): boolean {
@@ -246,16 +323,25 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     if (attendees.length > seatsLeft) {
       e.seats = `Only ${seatsLeft} seat${seatsLeft !== 1 ? "s" : ""} remaining.`;
     }
-    attendees.forEach((a, i) => {
-      if (!a.name.trim()) e[`${i}.name`] = "Full name is required.";
-      const email = a.email.trim();
-      if (i === 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-        e[`${i}.email`] = "Enter a valid email address.";
-      if (i > 0 && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-        e[`${i}.email`] = "Enter a valid email address or leave it blank.";
-      if (i === 0 && !a.phone.trim()) e[`${i}.phone`] = "Phone number is required.";
-    });
-    customFields.forEach((field) => {
+    const primary = attendees[0];
+    if (!primary?.name.trim()) e["0.name"] = "Full name is required.";
+    const primaryEmail = primary?.email.trim() ?? "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primaryEmail)) {
+      e["0.email"] = "Enter a valid email address.";
+    }
+    if (!primary?.phone.trim()) e["0.phone"] = "Phone number is required.";
+
+    if (guestDetailsMode === "custom") {
+      attendees.slice(1).forEach((a, offset) => {
+        const i = offset + 1;
+        const email = a.email.trim();
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          e[`${i}.email`] = "Enter a valid email address or leave it blank.";
+        }
+      });
+    }
+
+    visibleCustomFields.forEach((field) => {
       if (!field.is_required) return;
       const value = customResponses[field.id];
       const isEmptyArray = Array.isArray(value) && value.length === 0;
@@ -416,11 +502,12 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
   }
 
   function navigateToSuccess(opts?: { paid?: boolean; amount?: number }) {
+    const submissionAttendees = buildSubmissionAttendees();
     const params = new URLSearchParams({
       className: cls.title,
       date: formatDate(cls.date),
       time: `${formatTime(cls.startTime)} – ${formatTime(cls.endTime)}`,
-      customerName: attendees[0].name,
+      customerName: submissionAttendees[0]?.name ?? attendees[0].name,
       seats: String(attendees.length),
     });
     if (opts?.paid) params.set("paid", "true");
@@ -428,22 +515,38 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     router.push(`/booking/success?${params.toString()}`);
   }
 
+  function buildSubmissionAttendees() {
+    const primaryRaw = attendees[0] ?? { name: "", email: "", phone: "" };
+    const primary = {
+      name: primaryRaw.name.trim(),
+      email: primaryRaw.email.trim(),
+      phone: primaryRaw.phone.trim(),
+    };
+
+    return Array.from({ length: attendees.length }, (_, index) => {
+      if (index === 0 || guestDetailsMode === "same") return primary;
+      const guest = attendees[index] ?? { name: "", email: "", phone: "" };
+      return {
+        name: guest.name.trim() || primary.name,
+        email: guest.email.trim() || primary.email,
+        phone: guest.phone.trim() || primary.phone,
+      };
+    });
+  }
+
   function buildAttendeePayload() {
+    const submissionAttendees = buildSubmissionAttendees();
     return {
       classId: cls.id,
       businessId,
-      attendees: attendees.map((a) => ({
-        name: a.name.trim(),
-        email: a.email.trim(),
-        phone: a.phone.trim(),
-      })),
+      attendees: submissionAttendees,
       ageRange: ageRange || null,
       gender: gender || null,
       experienceLevel: experienceLevel || null,
       goals: goals.length > 0 ? goals : null,
       healthNote: healthNote.trim() || null,
       marketingConsent,
-      formResponses: customFields
+      formResponses: visibleCustomFields
         .map((field) => ({
           fieldId: field.id,
           fieldKey: field.field_key,
@@ -513,6 +616,8 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
     }
 
     const totalAmount = cls.price * attendees.length;
+    const submissionAttendees = buildSubmissionAttendees();
+    const primaryAttendee = submissionAttendees[0];
 
     const orderRes = await fetch("/api/payments/create-order", {
       method: "POST",
@@ -522,9 +627,9 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         businessId,
         amount: totalAmount,
         seatCount: attendees.length,
-        customerName: attendees[0].name.trim(),
-        customerEmail: attendees[0].email.trim(),
-        customerPhone: attendees[0].phone.trim(),
+        customerName: primaryAttendee.name,
+        customerEmail: primaryAttendee.email,
+        customerPhone: primaryAttendee.phone,
       }),
     });
 
@@ -544,9 +649,9 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
       name: businessName,
       description: `${cls.title} × ${attendees.length} seat${attendees.length !== 1 ? "s" : ""}`,
       prefill: {
-        name: attendees[0].name.trim(),
-        email: attendees[0].email.trim(),
-        contact: attendees[0].phone.trim(),
+        name: primaryAttendee.name,
+        email: primaryAttendee.email,
+        contact: primaryAttendee.phone,
       },
       handler: async (response: {
         razorpay_payment_id: string;
@@ -560,22 +665,8 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
             razorpay_payment_id: response.razorpay_payment_id,
             razorpay_order_id: response.razorpay_order_id,
             razorpay_signature: response.razorpay_signature,
-            classId: cls.id,
-            businessId,
             amount: totalAmount,
-            // Full attendee list so the server creates one booking row per person
-            attendees: attendees.map((a) => ({
-              name: a.name.trim(),
-              email: a.email.trim(),
-              phone: a.phone.trim(),
-            })),
-            // Optional insight fields for the primary attendee
-            ageRange: ageRange || null,
-            gender: gender || null,
-            experienceLevel: experienceLevel || null,
-            goals: goals.length > 0 ? goals : null,
-            healthNote: healthNote.trim() || null,
-            marketingConsent,
+            ...buildAttendeePayload(),
           }),
         });
 
@@ -642,7 +733,7 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
           <div>
             <p className="text-sm font-black text-slate-900">Seats</p>
             <p className="mt-0.5 text-xs text-slate-500">
-              Book for yourself or add guests. Guest email and phone can stay blank.
+              Extra seats can use your details or separate guest details.
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-2 py-2">
@@ -671,8 +762,64 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         </div>
       </div>
 
-      {/* Attendee cards */}
-      {attendees.map((a, i) => (
+      {/* Primary attendee */}
+      <AttendeeCard
+        key="primary-attendee"
+        index={0}
+        attendee={attendees[0]}
+        onChange={(field, value) => updateAttendee(0, field, value)}
+        errors={errors}
+        isFirst
+      />
+
+      {extraSeatCount > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-black text-slate-900">
+                Extra seat details
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                {extraSeatCount} extra seat{extraSeatCount !== 1 ? "s" : ""} can be booked under your details or with optional guest names.
+              </p>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-2 rounded-xl bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => chooseGuestDetailsMode("same")}
+                className={`rounded-lg px-3 py-2 text-xs font-black transition ${
+                  guestDetailsMode === "same"
+                    ? "bg-white text-violet-700 shadow-sm ring-1 ring-violet-200"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Same details
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseGuestDetailsMode("custom")}
+                className={`rounded-lg px-3 py-2 text-xs font-black transition ${
+                  guestDetailsMode === "custom"
+                    ? "bg-white text-violet-700 shadow-sm ring-1 ring-violet-200"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                Guest details
+              </button>
+            </div>
+          </div>
+
+          {guestDetailsMode === "same" && (
+            <p className="mt-4 rounded-xl bg-violet-50 px-4 py-3 text-xs font-semibold leading-5 text-violet-700">
+              No extra forms needed. We will reserve all seats using your primary contact details.
+            </p>
+          )}
+        </div>
+      )}
+
+      {guestDetailsMode === "custom" && attendees.slice(1).map((a, offset) => {
+        const i = offset + 1;
+        return (
         <AttendeeCard
           key={i}
           index={i}
@@ -682,22 +829,8 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
           errors={errors}
           isFirst={i === 0}
         />
-      ))}
-
-      {/* Add attendee button */}
-      {attendees.length < seatsLeft && (
-        <button
-          type="button"
-          onClick={addAttendee}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 py-4 text-sm font-bold text-slate-500 transition hover:border-teal-300 hover:text-teal-600"
-        >
-          <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-            <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M10 6 V14 M6 10 H14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          Add another person
-        </button>
-      )}
+        );
+      })}
 
       {/* Optional insights (primary attendee only) */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -839,16 +972,16 @@ export default function BookingForm({ cls, businessName, businessId }: Props) {
         </div>
       </div>
 
-      {customFields.length > 0 && (
+      {visibleCustomFields.length > 0 && (
         <div className="rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
           <div>
-            <p className="text-sm font-bold text-slate-900">Booking details</p>
+            <p className="text-sm font-bold text-slate-900">Studio questions</p>
             <p className="mt-0.5 text-xs text-slate-500">
               {businessName} asks for these details for this class.
             </p>
           </div>
           <div className="mt-5 space-y-5 border-t border-slate-100 pt-5">
-            {customFields.map((field) => renderCustomField(field))}
+            {visibleCustomFields.map((field) => renderCustomField(field))}
           </div>
         </div>
       )}

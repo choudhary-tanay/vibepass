@@ -134,26 +134,25 @@ export function HomeFeaturedCarousel({
   return (
     <div className="overflow-hidden rounded-[1.75rem] bg-white p-3 shadow-[0_18px_54px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80 dark:bg-slate-950 dark:ring-slate-800">
       <div className="relative min-h-[25rem] overflow-hidden rounded-[1.25rem] bg-slate-950 sm:min-h-[26rem]">
-        {activeClass.imageUrl ? (
+        <ClassImageTemplate
+          key={`fallback-${activeClass.id}`}
+          title={activeClass.title}
+          category={activeClass.category}
+          instructorName={activeClass.instructorName}
+          className="animate-slide-in absolute inset-0 h-full w-full rounded-none"
+          backgroundOnly
+        />
+        {activeClass.imageUrl && (
           <div
             key={activeClass.id}
             className="animate-slide-in absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: `url(${activeClass.imageUrl})` }}
           />
-        ) : (
-          <ClassImageTemplate
-            key={activeClass.id}
-            title={activeClass.title}
-            category={activeClass.category}
-            instructorName={activeClass.instructorName}
-            className="animate-slide-in absolute inset-0 h-full w-full rounded-none"
-            backgroundOnly
-          />
         )}
         {/* Bottom gradient — keeps content text readable */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/88 via-slate-950/22 to-slate-950/5" />
         {/* Top gradient — keeps badges readable over any image content */}
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/70 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/55 to-transparent" />
 
         <div className="absolute left-5 right-5 top-5 flex items-center justify-between gap-3">
           <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-black uppercase text-slate-950 shadow-sm backdrop-blur">

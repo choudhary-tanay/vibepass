@@ -255,18 +255,17 @@ export default function ClassDetailPage() {
         <section>
           <div className="grid gap-5 lg:grid-cols-[1.16fr_0.84fr] lg:items-stretch">
             <div className="relative min-h-80 overflow-hidden rounded-2xl bg-slate-950 shadow-[0_18px_54px_rgba(15,23,42,0.12)] lg:min-h-[27.5rem]">
-              {cls.imageUrl ? (
+              <ClassImageTemplate
+                title={cls.title}
+                category={cls.category}
+                instructorName={cls.instructorName}
+                className="absolute inset-0 h-full w-full rounded-none"
+                backgroundOnly
+              />
+              {cls.imageUrl && (
                 <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${cls.imageUrl})` }} />
-              ) : (
-                <ClassImageTemplate
-                  title={cls.title}
-                  category={cls.category}
-                  instructorName={cls.instructorName}
-                  className="absolute inset-0 h-full w-full rounded-none"
-                  backgroundOnly
-                />
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/82 via-black/30 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/74 via-black/22 to-black/5" />
               <div className="absolute left-5 top-5 flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-violet-600 px-4 py-2 text-xs font-black uppercase text-white shadow-sm">
                   {cls.category}

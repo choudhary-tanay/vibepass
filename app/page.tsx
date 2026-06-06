@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { ClassCard } from "@/components/ClassCard";
 import { ClassImageTemplate } from "@/components/ClassImageTemplate";
 import { HomeFeaturedCarousel } from "@/components/HomeFeaturedCarousel";
-import { MetricRibbon, TrendLine } from "@/components/PortalCharts";
+import { MetricRibbon } from "@/components/PortalCharts";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import type { Class, Staff } from "@/types";
 
@@ -222,10 +222,6 @@ export default async function Home() {
     (sum, cls) => sum + Math.max(0, cls.capacity - cls.bookedCount),
     0
   );
-  const trendPoints = liveClasses.length > 0
-    ? liveClasses.map((cls) => Math.max(1, cls.bookedCount))
-    : [3, 7, 6, 12, 10, 16];
-
   return (
     <main className="min-h-screen bg-white px-4 py-6 sm:px-6 sm:py-8">
       <section className="mx-auto max-w-[96rem]">
@@ -299,13 +295,12 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[0.92fr_1.08fr] xl:grid-cols-1">
+          <div className="min-w-0">
             <HomeFeaturedCarousel
               classes={homepageFeaturedClasses}
               businessNames={bizMap}
               instructorsByClassId={instructorsByClassId}
             />
-            <TrendLine points={trendPoints} label="Bookings last 7 days" />
           </div>
         </div>
 
