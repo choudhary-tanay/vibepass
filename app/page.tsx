@@ -505,6 +505,18 @@ export default async function Home() {
           </div>
           )}
         </section>
+
+        <footer className="mt-10 pb-4 text-center text-sm font-medium text-slate-500 dark:text-slate-400">
+          Built by{" "}
+          <a
+            href="https://tanai.online"
+            target="_blank"
+            rel="noopener"
+            className="font-bold text-slate-700 hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-300"
+          >
+            Tanay Choudhary
+          </a>
+        </footer>
       </section>
     </main>
   );
